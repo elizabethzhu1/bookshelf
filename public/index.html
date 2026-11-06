@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liz's Bookshelf</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='6' width='6' height='21' fill='%238c3b2a'/><rect x='12' y='4' width='5' height='23' fill='%233f5a48'/><rect x='18' y='8' width='7' height='19' fill='%23c49a3b' transform='rotate(8 21 27)'/><rect x='3' y='27' width='26' height='3' fill='%235c3b22'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script>
+    // Pick day or night before the first paint so the page never flashes bright at night.
+    (() => { const m = localStorage.getItem('lamp'); const h = new Date().getHours();
+      document.documentElement.dataset.theme = m === 'night' || (m !== 'day' && (h >= 19 || h < 7)) ? 'night' : 'day'; })();
+  </script>
+</head>
+<body>
+  <!-- A window onto San Francisco: sky by the city's real clock, live weather (window.js). -->
+  <div class="sf-window" id="sfWindow" role="img" aria-label="A window onto San Francisco">
+    <div class="sf-frame">
+      <div class="sf-glass">
+        <div class="sf-sky"></div>
+        <div class="sf-stars"></div>
+        <div class="sf-sun"></div>
+        <div class="sf-moon"><span></span></div>
+        <div class="sf-overcast"></div>
+        <div class="clouds"></div>
+        <svg class="sf-city" viewBox="0 0 120 44" preserveAspectRatio="none" aria-hidden="true">
+          <!-- Golden Gate Bridge -->
+          <g class="sf-bridge">
+            <path d="M0 31 H44" stroke-width="1.4"/>
+            <path d="M-2 16 Q7 30 14 9 M15.8 9 Q29 31 44 31" fill="none" stroke-width=".7"/>
+            <path d="M13.4 8 V34 M16.4 8 V34 M13.4 14 H16.4 M13.4 21 H16.4" stroke-width="1.3"/>
+          </g>
+          <!-- Hills, downtown with the Transamerica Pyramid, Sutro Tower -->
+          <path class="sf-land" d="M0 37 Q16 33 30 35 T56 33 T92 27 T120 31 V44 H0 Z"/>
+          <g class="sf-land">
+            <rect x="48" y="22" width="6" height="13"/><rect x="54" y="17" width="5" height="17"/>
+            <polygon points="62,5 59.6,34 64.4,34"/><rect x="61.8" y="1.5" width=".5" height="4"/>
+            <rect x="66" y="15" width="6" height="18"/><rect x="72" y="23" width="5" height="10"/>
+            <rect x="77" y="19" width="6" height="12"/><rect x="83" y="25" width="5" height="5"/>
+          </g>
+          <path class="sf-tower" d="M101 26 L104 9 L107 26 M102 20 H106 M102.7 15 H105.3 M104 9 V6" fill="none" stroke-width=".8"/>
+          <g class="sf-lights">
+            <rect x="50" y="25" width="1" height="1"/><rect x="52" y="29" width="1" height="1"/><rect x="56" y="20" width="1" height="1"/>
+            <rect x="57" y="26" width="1" height="1"/><rect x="61.5" y="22" width="1" height="1"/><rect x="62" y="28" width="1" height="1"/>
+            <rect x="68" y="18" width="1" height="1"/><rect x="70" y="24" width="1" height="1"/><rect x="68" y="29" width="1" height="1"/>
+            <rect x="74" y="26" width="1" height="1"/><rect x="79" y="22" width="1" height="1"/><rect x="81" y="27" width="1" height="1"/>
+            <rect x="85" y="27" width="1" height="1"/><rect x="103.6" y="5.5" width="1" height="1" class="beacon"/>
+          </g>
+        </svg>
+        <div class="sf-fog"><span></span><span></span></div>
+        <div class="precip"></div>
+        <div class="sf-flash"></div>
+        <div class="sf-panes"></div>
+      </div>
+    </div>
+    <div class="sf-sill"></div>
+    <p class="sf-plate"></p>
+  </div>
+
+  <!-- Reading lamp: hangs from the top of the page; drag it anywhere, pull its
+       chain to switch it, and it lights the area beneath it. -->
+  <div class="lamp-layer">
+    <svg class="lamp" id="lamp" viewBox="0 0 80 170" aria-hidden="true">
+      <defs>
+        <filter id="lampBlur" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="7"/></filter>
+      </defs>
+      <g class="lamp-swing">
+        <line x1="40" y1="0" x2="40" y2="78" class="lamp-cord" id="lampCord"/>
+        <rect x="35" y="74" width="10" height="9" rx="2" class="lamp-brass"/>
+        <circle cx="40" cy="122" r="17" class="lamp-halo" filter="url(#lampBlur)"/>
+        <ellipse cx="40" cy="116" rx="10" ry="8" class="lamp-bulb"/>
+        <path d="M33 82 L47 82 Q68 94 72 116 L8 116 Q12 94 33 82 Z" class="lamp-shade"/>
+        <path d="M30 86 Q20 96 16 110" class="lamp-shine"/>
+        <rect x="6" y="114" width="68" height="4" rx="2" class="lamp-brass lamp-rim"/>
+        <path d="M33 72 L47 72 L47 82 Q68 94 74 120 L6 120 Q12 94 33 82 Z" class="lamp-grab"><title>Drag to move the lamp · double-click to put it back</title></path>
+        <g class="lamp-chain">
+          <line x1="60" y1="118" x2="60" y2="142" class="lamp-links"/>
+          <circle cx="60" cy="145" r="3" class="lamp-brass"/>
+          <rect x="48" y="116" width="24" height="40" class="lamp-pull"><title>Pull to switch the lamp</title></rect>
+        </g>
+      </g>
+    </svg>
+    <div class="lamp-light" id="lampLight"></div>
+  </div>
+
+  <header class="masthead">
+    <h1>Liz's Bookshelf</h1>
+    <p class="ledger" id="ledger"></p>
+    <nav class="tabs" aria-label="Views">
+      <button data-view="shelf">Shelves</button>
+      <button data-view="catalog">Card Catalog</button>
+      <button data-view="rankings">Rankings</button>
+      <button data-view="review">Year in Review</button>
+      <button data-view="journal">Journal</button>
+      <button class="stamp" id="addBtn">Add book</button>
+      <button class="round-btn search-btn" id="searchBtn" type="button" title="Search the library (⌘K)" aria-label="Search the library (⌘K)"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <button class="lamp-btn" id="lampBtn" type="button"></button>
+    </nav>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <div id="scrim" class="scrim" hidden></div>
+  <aside id="drawer" class="drawer" hidden aria-label="Book details"></aside>
+  <dialog id="addDialog" aria-label="Add a book"></dialog>
+  <dialog id="searchDialog" class="search-dialog" aria-label="Search the library"></dialog>
+  <div id="toast" class="toast" role="status"></div>
+
+  <footer class="colophon">
+    <span>Library</span>
+    <code id="libraryDir">…</code>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+  <script type="module" src="/window.js"></script>
+</body>
+</html>

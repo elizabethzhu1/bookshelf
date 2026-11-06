@@ -1,0 +1,14 @@
+{
+  "name": "bookshelf",
+  "version": "1.0.0",
+  "description": "A personal digital bookshelf. Every book is a Markdown file, so your library lives happily inside Obsidian.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
