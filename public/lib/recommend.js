@@ -12,10 +12,11 @@
 //    out. Each comes with the reason: which of your books it's like, and
 //    which subjects they share.
 
-import { guessCategory } from '../public/categories.js';
+import { guessCategory } from '../categories.js';
 
 const OL = 'https://openlibrary.org/search.json';
-const HEADERS = { 'User-Agent': 'BookshelfLocalApp/1.0' };
+// Browsers won't let a page set User-Agent (and Open Library's CORS doesn't need it).
+const HEADERS = typeof window === 'undefined' ? { 'User-Agent': 'BookshelfLocalApp/1.0' } : {};
 const FIELDS = 'key,title,author_name,first_publish_year,cover_i,isbn,number_of_pages_median,subject,ratings_average,ratings_count';
 
 // Subjects too broad (or too bookkeeping) to say anything about taste.

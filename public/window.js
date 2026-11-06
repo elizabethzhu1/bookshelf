@@ -94,9 +94,9 @@ const WEATHER = code =>
 let weather = null; // { temp, code, cloud, wind } or null when unknown
 
 // The public copy has no server to ask, so it asks Open-Meteo directly.
-const STATIC = 'static' in document.documentElement.dataset;
+const SERVERLESS = ['static', 'local'].some(k => k in document.documentElement.dataset);
 async function fetchWeather() {
-  if (!STATIC) {
+  if (!SERVERLESS) {
     const r = await fetch('/api/weather');
     if (!r.ok) throw new Error();
     return r.json();

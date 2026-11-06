@@ -2,7 +2,7 @@
 
 A personal digital bookshelf with a vintage-library look. Every book is a Markdown file, so the library also works inside Obsidian.
 
-**See it live: [elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)** (a read-only copy)
+**Make your own: [elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)** · **See mine: [/bookshelf/liz](https://elizabethzhu1.github.io/bookshelf/liz/)**
 
 **Shelves**
 - **3D books** on wooden shelves, shown face-out with their covers or as spines colored to match their covers. Hover to turn a book and see its pages.
@@ -92,30 +92,37 @@ SORT rank ASC
 ```
 ````
 
-## The public copy (GitHub Pages)
+## The public site (GitHub Pages)
 
-Every push to `main` publishes a read-only copy of the bookshelf to
-[elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/), and it rebuilds once a day
-so recommendations stay fresh. Visitors can browse the shelves, open cards, search and see For You, but
-nothing can be changed. The workflow is `.github/workflows/pages.yml` and it runs `npm run build-site`,
-which saves the library as JSON next to the site in `_site/`. To leave out your reviews and notes, change
-that step to `npm run build-site -- --no-notes`.
+Every push to `main` publishes two things (and it rebuilds once a day so recommendations stay fresh):
 
-The copy is built from the `library/` folder in the repo. If you keep your books in an Obsidian vault
-instead, copy them into `library/` (or commit the vault folder) before pushing.
+- **[elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)**: make your own bookshelf.
+  Anyone can start with empty shelves and a short tour of each part of the page (adding books, decorating,
+  day and night, the lamp, search, the other views). Their library is kept in their own browser, with no
+  account and no server. **Export** downloads it as a zip of Markdown files (the same files the desktop
+  app and Obsidian use), and **Import** loads `.md` files or a zip back in, on any device.
+- **[/bookshelf/liz](https://elizabethzhu1.github.io/bookshelf/liz/)**: my bookshelf, read-only, built from
+  `library/`. To leave out reviews and notes, change the build step to `npm run build-site -- --no-notes`.
+
+The workflow is `.github/workflows/pages.yml`; it runs `npm run build-site`, which writes both into `_site/`.
+The browser and the desktop server share the same library code (`public/lib/library.js`): the server keeps
+books as files on disk, the website keeps the same Markdown text in the browser's storage.
 
 ## Layout
 
 ```
 server.js               small Node server + JSON API (no dependencies)
-lib/frontmatter.js      YAML frontmatter reader/writer that keeps fields it doesn't know
+public/lib/library.js   the library: books <-> Markdown, journal, settings, Open Library (server and browser)
+public/lib/frontmatter.js  YAML frontmatter reader/writer that keeps fields it doesn't know
+public/lib/browser-store.js, zip.js  the website's in-browser library, and export/import
 public/                 the site
   index.html, styles.css, app.js
   categories.js         category list + guessing a category from Open Library subjects
   shelf-material.js     the shelf plank drawings (woods and metals)
   window.js             the San Francisco window
   decor.js, plants.js   shelf decorations (plants.js draws the pothos and zebra plant leaf by leaf)
-lib/recommend.js        For You and similar books, from Open Library
+public/lib/recommend.js For You and similar books, from Open Library
+public/tour.js          the first-visit tour
 scripts/build-site.js   builds the read-only copy for GitHub Pages
 library/                your books (default location); .bookshelf.json holds goals and shelf order
 ```

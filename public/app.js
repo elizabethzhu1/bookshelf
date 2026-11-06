@@ -1,6 +1,7 @@
 import { CATEGORY_NAMES } from './categories.js';
 import { MATERIALS, MATERIAL_IDS, plankURI } from './shelf-material.js';
 import { DECOR, DECOR_KINDS, isDecor, decorKind, newDecorId, decorSVG } from './decor.js';
+import { runTour } from './tour.js';
 // ---------- helpers ----------
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -85,8 +86,24 @@ async function staticApi(url, method) {
   throw new Error(READ_ONLY);
 }
 
+// The make-your-own site (<html data-local>) has no server either: each
+// visitor's library lives in their browser, run by the same library code the
+// server uses (lib/library.js over lib/browser-store.js).
+const LOCAL = 'local' in document.documentElement.dataset;
+let localLibrary;
+async function localApi(url, method, body) {
+  if (url === '/api/config') return { libraryDir: '' };
+  localLibrary ??= Promise.all([import('./lib/library.js'), import('./lib/browser-store.js')])
+    .then(([{ createLibrary }, { browserStore }]) => createLibrary(browserStore));
+  // JSON round trip: the app gets plain copies, as it would from a server.
+  const out = await (await localLibrary).handle(method, url, body && JSON.parse(JSON.stringify(body)));
+  if (out === null) throw new Error('Unknown endpoint');
+  return JSON.parse(JSON.stringify(out));
+}
+
 async function api(url, { method = 'GET', body } = {}) {
   if (STATIC) return staticApi(url, method);
+  if (LOCAL) return localApi(url, method, body);
   const r = await fetch(url, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
@@ -303,6 +320,7 @@ function shelf(status, title, sub, books) {
   const custom = state.settings.shelfOrder?.[status]?.some(id => !isDecor(id)); // objects alone don't count as rearranging
   books = arranged(status, books);
   const byCategory = state.arrange === 'category';
+  const items = byCategory ? books : arrangedItems(status, books); // books and objects, in shelf order
   const note = byCategory
     ? 'Grouped by category.'
     : custom
@@ -312,11 +330,13 @@ function shelf(status, title, sub, books) {
     <h2 class="plaque">${title} <small>${books.length}</small>${status === 'tbr' && books.length
       ? '<button class="pick-btn" data-action="pickNext">What should I read next?</button>' : ''}</h2>
     <p class="sub">${note}</p>
-    ${books.length ? `<div class="shelf-row">
+    ${items.length ? `<div class="shelf-row">
       <button class="shelf-arrow prev" data-action="scrollShelf" data-dir="-1" aria-label="Scroll ${title} left" tabindex="-1">‹</button>
-      <div class="shelf-scroll" data-shelf="${status}"><div class="spines${byCategory ? ' by-category' : ''}" data-shelf="${status}">${byCategory ? categoryRow(books) : arrangedItems(status, books).map(x => (x.decor ? decorSlot(x) : shelfBook(x))).join('')}</div></div>
+      <div class="shelf-scroll" data-shelf="${status}"><div class="spines${byCategory ? ' by-category' : ''}" data-shelf="${status}">${byCategory ? categoryRow(books) : items.map(x => (x.decor ? decorSlot(x) : shelfBook(x))).join('')}</div></div>
       <button class="shelf-arrow next" data-action="scrollShelf" data-dir="1" aria-label="Scroll ${title} right" tabindex="-1">›</button>
-    </div>` : `<div class="spines bare"><p class="empty-shelf">an empty shelf</p></div>`}
+    </div>` : byCategory ? `<div class="spines bare"><p class="empty-shelf">an empty shelf</p></div>`
+      // still a drop target, so an empty shelf can be decorated
+      : `<div class="shelf-row"><div class="shelf-scroll" data-shelf="${status}"><div class="spines bare" data-shelf="${status}"><p class="empty-shelf">an empty shelf</p></div></div></div>`}
     ${status === 'tbr' ? pickCardHTML() : ''}
   </section>`;
 }
@@ -364,15 +384,26 @@ function nowCard(b) {
   </article>`;
 }
 
+// A new, empty library: what this is and where to start.
+function welcomeHTML() {
+  return `<section class="welcome-card">
+    <h2>Welcome to your bookshelf</h2>
+    <p>Add the books you own, are reading, have finished or want to read. They'll stand on these shelves, and the
+      catalog, rankings, journal and recommendations fill in as you go.${LOCAL ? ' Everything is saved in this browser, just for you.' : ''}</p>
+    <p class="welcome-actions">
+      <button class="stamp" data-action="add">Add your first book</button>
+      <button class="link-btn" data-action="tour">Take the tour</button>
+      ${LOCAL ? '<a class="link-btn" href="liz/">See an example shelf</a>' : ''}
+    </p>
+  </section>`;
+}
+
 function shelfView() {
   const of = s => state.books.filter(b => b.status === s);
   const byAuthor = (a, b) => lastName(a.author).localeCompare(lastName(b.author)) || a.title.localeCompare(b.title);
   const reading = of('reading');
   const read = of('read').sort((a, b) => (b.finished || '').localeCompare(a.finished || '') || a.title.localeCompare(b.title));
   const dnf = of('dnf');
-  if (!state.books.length) {
-    return `<div class="welcome">${empty('Your shelves are bare.')}<button class="stamp" data-action="add">Add your first book</button></div>`;
-  }
   const modes = [['covers', 'Covers'], ['spines', 'Spines']].map(([v, l]) =>
     `<button class="chip${state.shelfMode === v ? ' active' : ''}" data-action="shelfMode" data-value="${v}" aria-pressed="${state.shelfMode === v}">${l}</button>`).join('');
   const arranges = [['mine', 'My order'], ['category', 'By category']].map(([v, l]) =>
@@ -392,7 +423,7 @@ function shelfView() {
       </div>
     </details>`;
   const decorShelves = [['tbr', 'On the Shelf'], ['read', 'Finished'], ['dnf', 'Set Aside'], ['wishlist', 'Wishlist']]
-    .filter(([s]) => state.books.some(b => b.status === s));
+    .filter(([s]) => s !== 'dnf' || dnf.length);
   if (!decorShelves.some(([s]) => s === state.decorShelf) && decorShelves.length) state.decorShelf = decorShelves[0][0];
   const decorate = decorShelves.length ? `<details class="decor-pick">
       <summary class="chip">Decorate</summary>
@@ -404,7 +435,7 @@ function shelfView() {
         <p class="decor-help">Drag an object onto any shelf, or click to add it. On the shelf, drag it anywhere, even to another shelf. Click it to play with it; hover for × to remove it.</p>
       </div>
     </details>` : '';
-  return `
+  return `${state.books.length ? '' : welcomeHTML()}
     <div class="shelf-mode">${decorate}${decorate ? '<span class="mode-sep" aria-hidden="true"></span>' : ''}${picker}<span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf order">${arranges}</div><span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf display">${modes}</div></div>
     ${fill}
     <section class="shelf-section">
@@ -966,7 +997,7 @@ function drawerHTML(b) {
     </section>
     <section class="similar"><span class="label">Similar books</span>
       <div class="similar-list"><p class="muted rec-loading-inline">Finding books like this one…</p></div></section>
-    <p class="filepath mono" title="${esc(full)}">${esc(b.id)} &nbsp;·&nbsp; <a href="obsidian://open?path=${encodeURIComponent(full)}">open in Obsidian</a></p>
+    <p class="filepath mono" title="${esc(full)}">${esc(b.id)}${LOCAL || STATIC ? '' : ` &nbsp;·&nbsp; <a href="obsidian://open?path=${encodeURIComponent(full)}">open in Obsidian</a>`}</p>
     <div class="actions">
       <button type="button" class="ghost danger" data-delete>Remove</button>
       <span class="spacer"></span>
@@ -2013,6 +2044,11 @@ function recCardHTML(r, i, compact = false) {
 }
 
 function forYouView() {
+  if (!state.books.length) {
+    return `<p class="eyebrow review-years">Recommendations</p><h2 class="review-title">For you</h2>
+      <div class="welcome">${empty('Add a few books you’ve read and rate them, and recommendations from Open Library will appear here.')}
+      <button class="stamp" data-action="add">Add a book</button></div>`;
+  }
   if (!state.recs) { state.recs = { status: 'loading', data: null }; queueMicrotask(() => loadRecs()); }
   const { status, data, error } = state.recs;
   const books = (data?.books || []).filter(r => !recDismissed.has(r.key));
@@ -2132,6 +2168,7 @@ view.addEventListener('click', async e => {
   if (!t) return;
   const { action, id } = t.dataset;
   if (action === 'open') openDrawer(id);
+  else if (action === 'tour') startTour();
   else if (action === 'add') openAdd();
   else if (action === 'filter') { state.filter = t.dataset.value; render(); }
   else if (action === 'pickNext') pickNext();
@@ -2404,7 +2441,7 @@ api('/api/config').then(c => {
   $('#libraryDir').textContent = c.libraryDir;
   if (STATIC) $('.colophon span').textContent = c.label ?? 'Read-only copy';
 }).catch(() => {});
-load();
+const firstLoad = load();
 
 // ---------- the read-only public copy ----------
 // Editing controls are hidden by CSS (:root[data-static]); this stops the rest:
@@ -2429,4 +2466,224 @@ if (STATIC) {
   document.addEventListener('keydown', e => {
     if (e.target.closest?.('#drawer .stars') || (e.altKey && /^Arrow/.test(e.key))) e.stopImmediatePropagation();
   }, true);
+}
+
+// ---------- the tour, and your own bookshelf ----------
+// First visit to an empty bookshelf (and any time from the footer or the
+// welcome card): a walk round each part of the page.
+
+const setView = v => { if (state.view !== v) { state.view = v; localStorage.setItem('view', v); render(); } };
+const closeMenus = () => $$('details[open]').forEach(d => { d.open = false; });
+
+// The shelf's name, on the make-your-own site: "Maya's Bookshelf".
+const shelfTitle = name => (name ? `${name}${/s$/i.test(name) ? '’' : '’s'} Bookshelf` : 'My Bookshelf');
+function applyName() {
+  if (!LOCAL) return;
+  const title = shelfTitle(localStorage.getItem('bookshelf:name'));
+  $('.masthead h1').textContent = title;
+  document.title = title;
+}
+function setName(name) {
+  name = name.trim().slice(0, 40);
+  if (name) localStorage.setItem('bookshelf:name', name); else localStorage.removeItem('bookshelf:name');
+  applyName();
+}
+if (LOCAL) {
+  applyName();
+  // Click the title to rename the shelf.
+  const h1 = $('.masthead h1');
+  h1.classList.add('renamable');
+  h1.title = 'Click to rename your bookshelf';
+  h1.addEventListener('click', () => {
+    if (h1.querySelector('input')) return;
+    const input = document.createElement('input');
+    input.className = 'name-input';
+    input.value = localStorage.getItem('bookshelf:name') ?? '';
+    input.placeholder = 'Your name';
+    input.setAttribute('aria-label', 'Your name, for the bookshelf’s title');
+    h1.replaceChildren(input, document.createTextNode('’s Bookshelf'));
+    input.focus();
+    let done = false;
+    const finish = save => { if (done) return; done = true; if (save) setName(input.value); else applyName(); };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('blur', () => finish(true));
+  });
+}
+
+const TOUR = () => [
+  {
+    target: null,
+    title: LOCAL ? 'Welcome! This bookshelf is yours.' : 'Welcome to your bookshelf',
+    body: `<p>Here's a quick look around: where your books go, how to make the shelves your own, and the little things
+      that make the room. It takes about a minute.</p>${LOCAL ? '<p>First, whose bookshelf is this?</p>' : ''}`,
+    html: LOCAL ? `<label class="tour-field"><input id="tourName" placeholder="Your name" autocomplete="given-name" maxlength="40" autofocus
+      value="${esc(localStorage.getItem('bookshelf:name') ?? '')}"><span>’s Bookshelf</span></label>` : '',
+    next: 'Show me around',
+    before: () => { closeMenus(); setView('shelf'); window.scrollTo(0, 0); },
+    leave: tip => { const n = tip.querySelector('#tourName'); if (n) setName(n.value); },
+  },
+  {
+    target: '#addBtn',
+    title: 'Add your books',
+    body: `<p>Search Open Library by title, author or ISBN and the cover, pages and category fill themselves in, or type
+      a book in by hand. Put it on a shelf as you add it: reading, to read, finished, set aside, or the wishlist.</p>`,
+  },
+  {
+    target: '.shelf-section:has(.spines[data-shelf=tbr])',
+    title: 'Your shelves',
+    body: `<p>Books stand here, one shelf for each kind: Currently Reading at the top, then On the Shelf, Finished and
+      your Wishlist. Drag books to arrange them. Click one to open its card, where you rate it, track your page and
+      keep notes and a review.</p>`,
+    before: () => setView('shelf'),
+  },
+  {
+    target: '.shelf-mode',
+    title: 'Make it yours',
+    body: `<p><b>Decorate</b> puts objects among your books: two houseplants, a candle, a sleeping cat, tea, a globe.
+      Drag them anywhere; click them to play. Choose a <b>wood or metal</b> for the shelves, group books <b>by
+      category</b>, and show them by <b>cover or spine</b>.</p>`,
+    before: () => { setView('shelf'); closeMenus(); },
+  },
+  {
+    target: '#lampBtn',
+    title: 'Day and night',
+    body: `<p>Switch the whole room between day and night. Until you choose, it follows the clock and dims after 7 pm.</p>`,
+  },
+  {
+    target: '#lamp',
+    title: 'The reading lamp',
+    body: `<p>Drag the lamp anywhere and it lights the spot beneath it. Pull its chain to switch the bulb on or off,
+      brush past it to set it swinging, and double-click to hang it back up.</p>`,
+    before: () => window.scrollTo(0, 0),
+  },
+  {
+    target: '#sfWindow',
+    title: 'A window onto San Francisco',
+    body: `<p>The sky follows the real time of day in San Francisco, from dawn through dusk to stars, with the city's
+      live weather: fog, rain and all. Hover over it for sunrise and sunset.</p>`,
+  },
+  {
+    target: '#searchBtn',
+    title: 'Find anything',
+    body: `<p>Search every title, author, note and review in your library. Press <kbd>⌘K</kbd> or <kbd>/</kbd> from anywhere.</p>`,
+  },
+  {
+    target: ['.tabs [data-view]'],
+    title: 'Everything else',
+    body: `<p><b>Card Catalog</b> lists every book, to sort and filter. <b>Rankings</b> is your favourites in order.
+      <b>Year in Review</b> counts up your reading and sets a yearly goal. <b>Journal</b> logs what you read each day.
+      <b>For You</b> recommends books based on what you've rated and read.</p>`,
+  },
+  ...(LOCAL ? [{
+    target: '.colophon',
+    title: 'Saved in this browser',
+    body: `<p>Your library is kept on this device, private to you; there's no account. <b>Export</b> downloads every
+      book as a Markdown file (they open in Obsidian too), and <b>Import</b> brings them back, here or on another
+      computer.</p>`,
+    before: () => window.scrollTo(0, document.body.scrollHeight),
+  }] : []),
+  {
+    target: null,
+    title: 'That’s the tour',
+    body: `<p>Start with a book you're reading now, or one you loved. You can take this tour again from the bottom of the page.</p>`,
+    actions: '<button type="button" class="link-btn" data-tour-action="add">Add a book</button>',
+    next: 'Explore',
+    before: () => window.scrollTo(0, 0),
+    onAction: (a, end) => { if (a === 'add') { end(); openAdd(); } },
+  },
+];
+
+let touring = null;
+function startTour() {
+  if (touring || STATIC) return;
+  if (state.openId) closeDrawer();
+  touring = runTour(TOUR(), { onEnd: () => { touring = null; localStorage.setItem('bookshelf:toured', '1'); } });
+}
+
+// The footer: where the library lives, and (in the browser) its backup.
+async function exportLibrary() {
+  const [{ browserStore }, { makeZip }] = await Promise.all([import('./lib/browser-store.js'), import('./lib/zip.js')]);
+  const files = (await browserStore.list()).map(({ id, text }) => ({ name: `Bookshelf/${id}`, text }));
+  if (!files.length) { toast('There are no books to export yet.'); return; }
+  const count = files.length;
+  const settings = await browserStore.readSettings();
+  if (settings) files.push({ name: 'Bookshelf/.bookshelf.json', text: JSON.stringify(settings, null, 2) + '\n' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(makeZip(files));
+  a.download = `Bookshelf ${today()}.zip`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  toast(`Exported ${plural(count, 'book')}.`);
+}
+
+async function importLibrary(fileList) {
+  const [{ browserStore }, { readZip }, { validId }] = await Promise.all([import('./lib/browser-store.js'), import('./lib/zip.js'), import('./lib/library.js')]);
+  const files = [];
+  try {
+    for (const f of fileList) {
+      if (/\.zip$/i.test(f.name)) files.push(...await readZip(f));
+      else files.push({ name: f.name, text: await f.text() });
+    }
+    let books = 0;
+    for (const { name, text } of files) {
+      const parts = name.split('/');
+      const base = parts.pop();
+      if (parts.some(p => p.startsWith('.') || p === '__MACOSX')) continue; // .trash, Finder's extras
+      if (base === '.bookshelf.json') {
+        const s = JSON.parse(text);
+        const mine = (await browserStore.readSettings()) ?? {};
+        await browserStore.writeSettings({ goals: { ...mine.goals, ...s.goals }, shelfOrder: { ...mine.shelfOrder, ...s.shelfOrder } });
+      } else if (validId(base)) {
+        await browserStore.write(base, text); // same file name: the imported copy wins
+        books++;
+      }
+    }
+    state.recs = null;
+    await load();
+    toast(books ? `Imported ${plural(books, 'book')}.` : 'No books (.md files) found in that.', !books);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function startOver() {
+  if (!confirm('Remove every book from this bookshelf? This can’t be undone. (Export first if you want a copy.)')) return;
+  const { browserStore } = await import('./lib/browser-store.js');
+  browserStore.clear();
+  state.recs = null;
+  await load();
+  toast('Your shelves are empty again.');
+}
+
+function setupFooter() {
+  const foot = $('.colophon');
+  if (STATIC) return;
+  if (LOCAL) {
+    foot.innerHTML = `<span>Saved in this browser</span>
+      <button type="button" class="link-btn" data-foot="export">Export</button>
+      <label class="link-btn">Import<input type="file" accept=".md,.zip,.json,text/markdown" multiple hidden data-foot="import"></label>
+      <button type="button" class="link-btn" data-foot="reset">Start over</button>
+      <span class="foot-gap"></span>
+      <button type="button" class="link-btn" data-foot="tour">Take the tour</button>
+      <a class="link-btn" href="liz/">See an example shelf</a>`;
+  } else {
+    foot.insertAdjacentHTML('beforeend', '<span class="foot-gap"></span><button type="button" class="link-btn" data-foot="tour">Take the tour</button>');
+  }
+  foot.addEventListener('click', e => {
+    const what = e.target.closest('button[data-foot]')?.dataset.foot;
+    if (what === 'export') exportLibrary();
+    else if (what === 'reset') startOver();
+    else if (what === 'tour') startTour();
+  });
+  foot.addEventListener('change', e => {
+    if (e.target.matches('[data-foot=import]') && e.target.files.length) { importLibrary([...e.target.files]); e.target.value = ''; }
+  });
+}
+setupFooter();
+
+// A first visit to an empty bookshelf starts the tour by itself.
+if (!STATIC && !localStorage.getItem('bookshelf:toured')) {
+  firstLoad.then(() => { if (!state.books.length) setTimeout(startTour, 500); });
 }
