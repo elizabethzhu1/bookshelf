@@ -10,6 +10,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parse, formatEntry } from './lib/frontmatter.js';
 import { guessCategory } from './public/categories.js';
+import { recommend, similar } from './lib/recommend.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const expandHome = p => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
@@ -51,16 +52,17 @@ function splitBody(body) {
 //   - 2026-11-07 · Just a note, no pages.
 // Lines that don't fit the pattern are kept exactly as written.
 
-const JOURNAL_LINE = /^[-*][ \t]+(\d{4}-\d{2}-\d{2})(?:[ \t]+·[ \t]+pp?\.[ \t]*(\d+)(?:[ \t]*[–-][ \t]*(\d+))?)?(?:[ \t]+·[ \t]+(.*))?[ \t]*$/;
+// - 2026-11-05 · pp. 120–141 · 32 min · a note   (pages, minutes and note are each optional)
+const JOURNAL_LINE = /^[-*][ \t]+(\d{4}-\d{2}-\d{2})(?:[ \t]+·[ \t]+pp?\.[ \t]*(\d+)(?:[ \t]*[–-][ \t]*(\d+))?)?(?:[ \t]+·[ \t]+(\d+)[ \t]*min)?(?:[ \t]+·[ \t]+(.*))?[ \t]*$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseJournal(text) {
   return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
     const m = line.match(JOURNAL_LINE);
     if (!m) return { raw: line };
-    const [, date, a, b, note] = m;
+    const [, date, a, b, min, note] = m;
     const [from, to] = b !== undefined ? [Number(a), Number(b)] : [null, a !== undefined ? Number(a) : null];
-    return { date, from, to, note: (note || '').trim() };
+    return { date, from, to, minutes: min !== undefined ? Number(min) : null, note: (note || '').trim() };
   });
 }
 
@@ -69,6 +71,7 @@ function formatJournal(entries) {
     if (e.raw) return e.raw;
     const parts = [e.date];
     if (e.to != null) parts.push(e.from != null ? `pp. ${e.from}–${e.to}` : `p. ${e.to}`);
+    if (e.minutes) parts.push(`${e.minutes} min`);
     if (e.note) parts.push(e.note);
     return `- ${parts.join(' · ')}`;
   }).join('\n');
@@ -85,8 +88,9 @@ function cleanJournal(list) {
     if (!ISO_DATE.test(date) || Number.isNaN(from) || Number.isNaN(to)) {
       throw Object.assign(new Error('Each journal entry needs a date (YYYY-MM-DD) and whole page numbers'), { status: 400 });
     }
-    return { date, from: to == null ? null : from, to, note: String(e?.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000) };
-  }).filter(e => e.raw || e.to != null || e.note);
+    const minutes = Number.isFinite(Number(e?.minutes)) && Number(e.minutes) > 0 ? Math.round(Number(e.minutes)) : null;
+    return { date, from: to == null ? null : from, to, minutes, note: String(e?.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000) };
+  }).filter(e => e.raw || e.to != null || e.minutes || e.note);
   return sortJournal(out);
 }
 
@@ -380,6 +384,20 @@ async function sfWeather() {
   return data;
 }
 
+// ---------- recommendations ----------
+// Worked out from your library (see lib/recommend.js) and remembered until a
+// rating, status or book changes, or for half an hour.
+
+let recCache = null; // { sig, at, data }
+async function recommendations(refresh = false) {
+  const books = await listBooks();
+  const sig = books.map(b => `${b.id}:${b.status}:${b.rating ?? ''}`).join('|');
+  if (!refresh && recCache && recCache.sig === sig && Date.now() - recCache.at < 30 * 60_000) return recCache.data;
+  const data = await recommend(books);
+  recCache = { sig, at: Date.now(), data };
+  return data;
+}
+
 // ---------- HTTP ----------
 
 const TYPES = {
@@ -435,6 +453,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/categorize-missing' && req.method === 'POST') return send(res, 200, await categorizeMissing());
     if (pathname === '/api/weather') return send(res, 200, await sfWeather());
+    if (pathname === '/api/recommendations') return send(res, 200, await recommendations(searchParams.has('refresh')));
+    if (pathname === '/api/similar') {
+      const id = searchParams.get('id') || '';
+      return send(res, 200, await similar(toBook(id, await readBookFile(id)), await listBooks()));
+    }
     if (pathname === '/api/search') {
       const q = (searchParams.get('q') || '').trim();
       return send(res, 200, q ? await searchOpenLibrary(q) : []);

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="styles.css">
   <script>
     // Pick day or night before the first paint so the page never flashes bright at night.
     (() => { const m = localStorage.getItem('lamp'); const h = new Date().getHours();
@@ -95,6 +95,7 @@
       <button data-view="rankings">Rankings</button>
       <button data-view="review">Year in Review</button>
       <button data-view="journal">Journal</button>
+      <button data-view="foryou">For You</button>
       <button class="stamp" id="addBtn">Add book</button>
       <button class="round-btn search-btn" id="searchBtn" type="button" title="Search the library (⌘K)" aria-label="Search the library (⌘K)"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       <button class="lamp-btn" id="lampBtn" type="button"></button>
@@ -108,13 +109,14 @@
   <dialog id="addDialog" aria-label="Add a book"></dialog>
   <dialog id="searchDialog" class="search-dialog" aria-label="Search the library"></dialog>
   <div id="toast" class="toast" role="status"></div>
+  <div id="readingRoom" class="reading-room" hidden role="dialog" aria-modal="true" aria-label="Reading mode"></div>
 
   <footer class="colophon">
     <span>Library</span>
     <code id="libraryDir">…</code>
   </footer>
 
-  <script type="module" src="/app.js"></script>
-  <script type="module" src="/window.js"></script>
+  <script type="module" src="app.js"></script>
+  <script type="module" src="window.js"></script>
 </body>
 </html>

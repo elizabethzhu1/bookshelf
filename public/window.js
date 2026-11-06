@@ -93,11 +93,27 @@ const WEATHER = code =>
 
 let weather = null; // { temp, code, cloud, wind } or null when unknown
 
-async function loadWeather() {
-  try {
+// The public copy has no server to ask, so it asks Open-Meteo directly.
+const STATIC = 'static' in document.documentElement.dataset;
+async function fetchWeather() {
+  if (!STATIC) {
     const r = await fetch('/api/weather');
     if (!r.ok) throw new Error();
-    weather = await r.json();
+    return r.json();
+  }
+  const params = new URLSearchParams({
+    latitude: LAT, longitude: LNG, current: 'temperature_2m,weather_code,cloud_cover,wind_speed_10m',
+    temperature_unit: 'fahrenheit', wind_speed_unit: 'mph', timezone: TZ,
+  });
+  const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+  if (!r.ok) throw new Error();
+  const { current: c } = await r.json();
+  return { temp: c.temperature_2m, code: c.weather_code, cloud: c.cloud_cover, wind: c.wind_speed_10m, time: c.time };
+}
+
+async function loadWeather() {
+  try {
+    weather = await fetchWeather();
   } catch {
     weather = null; // just the sky, then
   }

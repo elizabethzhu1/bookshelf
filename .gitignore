@@ -2,3 +2,4 @@
 node_modules/
 # Books removed from the library (the app's soft-delete folder)
 library/.trash/
+_site/

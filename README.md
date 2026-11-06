@@ -2,6 +2,8 @@
 
 A personal digital bookshelf with a vintage-library look. Every book is a Markdown file, so the library also works inside Obsidian.
 
+**See it live: [elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)** (a read-only copy)
+
 **Shelves**
 - **3D books** on wooden shelves, shown face-out with their covers or as spines colored to match their covers. Hover to turn a book and see its pages.
 - **Shelf materials**: oak, maple, pine, cherry, mahogany, walnut, ebony, brushed steel or black iron, with realistic grain.
@@ -90,6 +92,18 @@ SORT rank ASC
 ```
 ````
 
+## The public copy (GitHub Pages)
+
+Every push to `main` publishes a read-only copy of the bookshelf to
+[elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/), and it rebuilds once a day
+so recommendations stay fresh. Visitors can browse the shelves, open cards, search and see For You, but
+nothing can be changed. The workflow is `.github/workflows/pages.yml` and it runs `npm run build-site`,
+which saves the library as JSON next to the site in `_site/`. To leave out your reviews and notes, change
+that step to `npm run build-site -- --no-notes`.
+
+The copy is built from the `library/` folder in the repo. If you keep your books in an Obsidian vault
+instead, copy them into `library/` (or commit the vault folder) before pushing.
+
 ## Layout
 
 ```
@@ -100,5 +114,8 @@ public/                 the site
   categories.js         category list + guessing a category from Open Library subjects
   shelf-material.js     the shelf plank drawings (woods and metals)
   window.js             the San Francisco window
+  decor.js, plants.js   shelf decorations (plants.js draws the pothos and zebra plant leaf by leaf)
+lib/recommend.js        For You and similar books, from Open Library
+scripts/build-site.js   builds the read-only copy for GitHub Pages
 library/                your books (default location); .bookshelf.json holds goals and shelf order
 ```

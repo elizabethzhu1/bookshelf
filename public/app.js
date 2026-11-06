@@ -1,5 +1,6 @@
 import { CATEGORY_NAMES } from './categories.js';
 import { MATERIALS, MATERIAL_IDS, plankURI } from './shelf-material.js';
+import { DECOR, DECOR_KINDS, isDecor, decorKind, newDecorId, decorSVG } from './decor.js';
 // ---------- helpers ----------
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -34,6 +35,7 @@ const state = {
   view: localStorage.getItem('view') || 'shelf',
   shelfMode: localStorage.getItem('shelfMode') || 'covers', // 'covers' | 'spines'
   arrange: localStorage.getItem('arrange') || 'mine', // 'mine' (hand-arranged) | 'category'
+  decorShelf: 'tbr', // where the Decorate menu puts new objects
   material: MATERIAL_IDS.includes(localStorage.getItem('shelfMaterial')) ? localStorage.getItem('shelfMaterial') : 'oak',
   q: '',
   filter: 'all',
@@ -62,7 +64,29 @@ const fmtDate = s => {
   return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+// The public copy on GitHub Pages has no server: the build (scripts/build-site.js)
+// saves the library as JSON files and marks the page <html data-static>.
+// Reads come from those files; anything that would change the library is off.
+const STATIC = 'static' in document.documentElement.dataset;
+const READ_ONLY = 'This is a read-only copy of the bookshelf.';
+let staticSimilar;
+async function staticApi(url, method) {
+  if (method !== 'GET') throw new Error(READ_ONLY);
+  const get = async f => { const r = await fetch(`data/${f}`); if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); };
+  const [path, query] = url.split('?');
+  if (path === '/api/books') return get('books.json');
+  if (path === '/api/settings') return get('settings.json');
+  if (path === '/api/config') return get('config.json');
+  if (path === '/api/recommendations') return get('recommendations.json');
+  if (path === '/api/similar') {
+    staticSimilar ??= get('similar.json');
+    return { books: (await staticSimilar)[new URLSearchParams(query).get('id')] ?? [] };
+  }
+  throw new Error(READ_ONLY);
+}
+
 async function api(url, { method = 'GET', body } = {}) {
+  if (STATIC) return staticApi(url, method);
   const r = await fetch(url, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
@@ -242,7 +266,6 @@ function arranged(status, books) {
   ];
 }
 
-// Each shelf is one long plank that scrolls sideways, however many books it holds.
 // Grouped by category, each group starts with a little label card standing on
 // the plank; within a group the books keep your arranged order.
 function categoryRow(books) {
@@ -253,8 +276,31 @@ function categoryRow(books) {
     + groups.get(c).map(shelfBook).join('')).join('');
 }
 
+// Books and objects together, in the shelf's saved order. Objects are kept
+// only in "My order" (grouping by category shows just the books).
+function arrangedItems(status, books) {
+  const saved = state.settings.shelfOrder?.[status];
+  if (!saved?.length) return books;
+  const byBook = new Map(books.map(b => [b.id, b]));
+  const placed = new Set(saved);
+  return [
+    ...books.filter(b => !placed.has(b.id)),
+    ...saved.map(id => (isDecor(id) ? (DECOR[decorKind(id)] ? { decor: true, id, kind: decorKind(id) } : null) : byBook.get(id))).filter(Boolean),
+  ];
+}
+
+const decorOut = new Set(JSON.parse(localStorage.getItem('decorOut') || '[]')); // candles you've blown out
+function decorSlot(item) {
+  const d = DECOR[item.kind];
+  const out = item.kind === 'candle' && decorOut.has(item.id);
+  return `<div class="slot decor-slot decor-${item.kind}${out ? ' out' : ''}"${state.arrange === 'mine' ? ' draggable="true"' : ''}>`
+    + `<button class="decor" data-action="decor" data-id="${esc(item.id)}" title="${esc(d.name)}" aria-label="${esc(d.name)}">${decorSVG(item.kind)}</button>`
+    + `<button class="decor-remove" data-action="removeDecor" data-value="${esc(item.id)}" aria-label="Remove ${esc(d.name.toLowerCase())}" tabindex="-1">×</button></div>`;
+}
+
+// Each shelf is one long plank that scrolls sideways, however many books it holds.
 function shelf(status, title, sub, books) {
-  const custom = state.settings.shelfOrder?.[status]?.length;
+  const custom = state.settings.shelfOrder?.[status]?.some(id => !isDecor(id)); // objects alone don't count as rearranging
   books = arranged(status, books);
   const byCategory = state.arrange === 'category';
   const note = byCategory
@@ -268,7 +314,7 @@ function shelf(status, title, sub, books) {
     <p class="sub">${note}</p>
     ${books.length ? `<div class="shelf-row">
       <button class="shelf-arrow prev" data-action="scrollShelf" data-dir="-1" aria-label="Scroll ${title} left" tabindex="-1">‹</button>
-      <div class="shelf-scroll" data-shelf="${status}"><div class="spines${byCategory ? ' by-category' : ''}" data-shelf="${status}">${byCategory ? categoryRow(books) : books.map(shelfBook).join('')}</div></div>
+      <div class="shelf-scroll" data-shelf="${status}"><div class="spines${byCategory ? ' by-category' : ''}" data-shelf="${status}">${byCategory ? categoryRow(books) : arrangedItems(status, books).map(x => (x.decor ? decorSlot(x) : shelfBook(x))).join('')}</div></div>
       <button class="shelf-arrow next" data-action="scrollShelf" data-dir="1" aria-label="Scroll ${title} right" tabindex="-1">›</button>
     </div>` : `<div class="spines bare"><p class="empty-shelf">an empty shelf</p></div>`}
     ${status === 'tbr' ? pickCardHTML() : ''}
@@ -310,7 +356,10 @@ function nowCard(b) {
         ${b.pages ? `of ${b.pages} &nbsp;·&nbsp; ${pct}%` : ''}</p>
       ${paceHTML(b)}
       ${b.started ? `<p class="meta">begun ${fmtDate(b.started)}</p>` : ''}
-      <button class="link-btn finish" data-action="finish" data-id="${esc(b.id)}">Mark finished</button>
+      <div class="now-actions">
+        <button class="link-btn start-reading" data-action="startReading" data-id="${esc(b.id)}">▶ Start reading</button>
+        <button class="link-btn finish" data-action="finish" data-id="${esc(b.id)}">Mark finished</button>
+      </div>
     </div>
   </article>`;
 }
@@ -342,8 +391,21 @@ function shelfView() {
           ${swatch(id)}<span>${esc(MATERIALS[id].name)}</span></button>`).join('')}
       </div>
     </details>`;
+  const decorShelves = [['tbr', 'On the Shelf'], ['read', 'Finished'], ['dnf', 'Set Aside'], ['wishlist', 'Wishlist']]
+    .filter(([s]) => state.books.some(b => b.status === s));
+  if (!decorShelves.some(([s]) => s === state.decorShelf) && decorShelves.length) state.decorShelf = decorShelves[0][0];
+  const decorate = decorShelves.length ? `<details class="decor-pick">
+      <summary class="chip">Decorate</summary>
+      <div class="decor-menu">
+        <p class="decor-to"><span>Put it on</span>${decorShelves.map(([s, l]) =>
+          `<button class="chip${state.decorShelf === s ? ' active' : ''}" data-action="decorShelf" data-value="${s}">${l}</button>`).join('')}</p>
+        <div class="decor-grid">${DECOR_KINDS.map(k => `<button class="decor-opt" data-action="addDecor" data-value="${k}"${state.arrange === 'mine' ? ' draggable="true"' : ''}>
+          <span class="decor-thumb">${decorSVG(k, .5)}</span><span>${esc(DECOR[k].name)}</span></button>`).join('')}</div>
+        <p class="decor-help">Drag an object onto any shelf, or click to add it. On the shelf, drag it anywhere, even to another shelf. Click it to play with it; hover for × to remove it.</p>
+      </div>
+    </details>` : '';
   return `
-    <div class="shelf-mode">${picker}<span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf order">${arranges}</div><span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf display">${modes}</div></div>
+    <div class="shelf-mode">${decorate}${decorate ? '<span class="mode-sep" aria-hidden="true"></span>' : ''}${picker}<span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf order">${arranges}</div><span class="mode-sep" aria-hidden="true"></span><div role="group" aria-label="Shelf display">${modes}</div></div>
     ${fill}
     <section class="shelf-section">
       <h2 class="plaque">Currently Reading <small>${reading.length}</small></h2>
@@ -409,7 +471,7 @@ async function pickNext() {
   if (spinning) return;
   const row = $('.spines[data-shelf="tbr"]');
   if (!row) { toast('Nothing on your To Read shelf yet.'); return; }
-  const slots = $$(':scope > .slot', row);
+  const slots = $$(':scope > .slot:not(.decor-slot)', row);
   const books = slots.map(s => byId(s.firstElementChild.dataset.id));
   const odds = pickOdds(books);
   const total = odds.reduce((sum, o) => sum + o.weight, 0);
@@ -446,17 +508,20 @@ async function pickNext() {
 
 const isoDay = d => d.toLocaleDateString('en-CA');
 const entryPages = e => (e.from != null && e.to != null && e.to > e.from ? e.to - e.from : 0);
-const entryRange = e => (e.from != null && e.to != null ? `pp. ${e.from}–${e.to} · ${plural(e.to - e.from, 'page')}` : e.to != null ? `to p. ${e.to}` : '');
+const fmtMinutes = m => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`);
+const entryRange = e => [e.from != null && e.to != null ? `pp. ${e.from}–${e.to} · ${plural(e.to - e.from, 'page')}` : e.to != null ? `to p. ${e.to}` : '',
+  e.minutes ? fmtMinutes(e.minutes) : ''].filter(Boolean).join(' · ');
 const longDate = iso => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 const allEntries = () => state.books.flatMap(b => (b.journal || []).filter(e => e.date).map(e => ({ ...e, book: b })));
 
 // Add an entry (or extend that day's entry) for a book. Pages start where the
 // last earlier entry left off.
-function withEntry(b, { date, to, note }) {
+function withEntry(b, { date, to, note, minutes = null }) {
   const journal = (b.journal || []).map(e => ({ ...e }));
   const same = journal.find(e => !e.raw && e.date === date);
   if (same) {
     if (to != null) same.to = same.to != null ? Math.max(same.to, to) : to;
+    if (minutes) same.minutes = (same.minutes || 0) + minutes;
     if (note) same.note = [same.note, note].filter(Boolean).join(' ');
     if (same.from != null && same.to != null && same.from >= same.to) same.from = null;
     return journal;
@@ -467,7 +532,7 @@ function withEntry(b, { date, to, note }) {
     from = earlier.length ? Math.max(...earlier) : date === today() ? (b.progress ?? 0) : null;
     if (from != null && from >= to) from = null;
   }
-  journal.push({ date, from, to, note: note || '' });
+  journal.push({ date, from, to, minutes, note: note || '' });
   return journal;
 }
 
@@ -552,6 +617,7 @@ function journalView() {
   });
   const { current, longest } = streaks(new Set(entries.map(e => e.date)), y);
   const pages = inYear.reduce((sum, e) => sum + entryPages(e), 0);
+  const minutes = inYear.reduce((sum, e) => sum + (e.minutes || 0), 0);
   const tile = (label, value, note = '') => `<div class="tile"><span class="label">${label}</span><span class="tile-value">${value}</span>${note ? `<span class="tile-note">${note}</span>` : ''}</div>`;
   const chips = years.map(v => `<button class="chip${y === v ? ' active' : ''}" data-action="journalYear" data-value="${v}">${v}</button>`).join('');
 
@@ -574,6 +640,7 @@ function journalView() {
     <div class="tiles">
       ${tile('Days read', byDay.size, `in ${y}`)}
       ${tile('Pages logged', pages.toLocaleString())}
+      ${minutes ? tile('Time read', fmtMinutes(minutes), 'in reading sessions') : ''}
       ${tile('Current streak', plural(current, 'day'), current ? 'keep it going' : 'read today to start one')}
       ${tile('Longest streak', plural(longest, 'day'), `in ${y}`)}
     </div>
@@ -897,6 +964,8 @@ function drawerHTML(b) {
         <button type="button" class="link-btn" data-add-entry>Add</button>
       </div>
     </section>
+    <section class="similar"><span class="label">Similar books</span>
+      <div class="similar-list"><p class="muted rec-loading-inline">Finding books like this one…</p></div></section>
     <p class="filepath mono" title="${esc(full)}">${esc(b.id)} &nbsp;·&nbsp; <a href="obsidian://open?path=${encodeURIComponent(full)}">open in Obsidian</a></p>
     <div class="actions">
       <button type="button" class="ghost danger" data-delete>Remove</button>
@@ -922,6 +991,7 @@ async function openDrawer(id) {
   d.classList.add('open');
   d.scrollTop = 0;
   bindDrawer(d, b);
+  loadSimilar(b, d);
 }
 
 async function closeDrawer(force = false) {
@@ -1411,6 +1481,64 @@ lampGrab.addEventListener('dblclick', () => {
 new ResizeObserver(() => placeLamp()).observe(document.body); // window resizes, scrollbar appearing
 placeLamp();
 
+// ---------- objects on the shelves ----------
+
+function addDecor(kind) {
+  const status = state.decorShelf;
+  if (state.arrange !== 'mine') { state.arrange = 'mine'; localStorage.setItem('arrange', 'mine'); render(); }
+  const row = $(`.spines[data-shelf="${status}"]`);
+  if (!row) { toast('That shelf is empty. Put a book on it first.', true); return; }
+  // Stand it at the left edge of what you can currently see of the shelf.
+  const scroller = row.closest('.shelf-scroll');
+  const slots = $$(':scope > .slot', row);
+  const at = Math.max(0, slots.findIndex(s => s.offsetLeft + s.offsetWidth > scroller.scrollLeft + 30));
+  const ids = shelfIds(row);
+  const id = newDecorId(kind);
+  ids.splice(at, 0, id);
+  $('.decor-pick')?.removeAttribute('open');
+  saveShelfOrder(status, ids);
+  const placed = $(`.spines[data-shelf="${status}"] [data-id="${CSS.escape(id)}"]`)?.parentElement;
+  if (placed) {
+    placed.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+    placed.classList.add('just-placed');
+    setTimeout(() => placed.classList.remove('just-placed'), 1400);
+  }
+  toast(`${DECOR[kind].name} added. Drag it along the shelf to move it.`);
+}
+
+function removeDecor(id) {
+  for (const [status, order] of Object.entries(state.settings.shelfOrder || {})) {
+    if (!order?.includes(id)) continue;
+    const rest = order.filter(x => x !== id);
+    saveShelfOrder(status, rest.length ? rest : null);
+  }
+  decorOut.delete(id);
+  localStorage.setItem('decorOut', JSON.stringify([...decorOut]));
+}
+
+// Click an object to play with it.
+function pokeDecor(btn) {
+  const slot = btn.parentElement;
+  const id = btn.dataset.id;
+  if (decorKind(id) === 'candle') {
+    const out = !slot.classList.contains('out');
+    slot.classList.toggle('out', out);
+    if (out) decorOut.add(id); else decorOut.delete(id);
+    localStorage.setItem('decorOut', JSON.stringify([...decorOut]));
+    slot.classList.remove('poke');
+    void slot.offsetWidth;
+  }
+  slot.classList.remove('poke');
+  void slot.offsetWidth; // restart the animation
+  slot.classList.add('poke');
+  clearTimeout(slot._poke);
+  slot._poke = setTimeout(() => slot.classList.remove('poke'), 2600);
+}
+document.addEventListener('click', e => {
+  const open = $('.decor-pick[open]');
+  if (open && !open.contains(e.target)) open.open = false;
+});
+
 // ---------- shelf material ----------
 // The plank drawing for the chosen wood or metal, in day and night light.
 
@@ -1639,6 +1767,313 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ---------- reading mode ----------
+// "Start reading" on a book you're reading: the room goes dark, the book sits
+// in the middle, the lamp glides over and switches on above it, and a timer
+// runs. When you're done you say what page you reached, and the session goes
+// into the journal with its minutes. The session survives a reload.
+
+const SESSION_KEY = 'readingSession';
+let session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); // { id, startPage, began, elapsed, runningSince }
+let sessionTick = 0;
+let lampBefore = null; // where the lamp was, to put it back afterwards
+const pageTitle = document.title;
+
+const sessionMs = () => session ? session.elapsed + (session.runningSince ? Date.now() - session.runningSince : 0) : 0;
+const clockText = ms => {
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
+const saveSession = () => (session ? localStorage.setItem(SESSION_KEY, JSON.stringify(session)) : localStorage.removeItem(SESSION_KEY));
+
+function startReading(id) {
+  const b = byId(id);
+  if (!b) return;
+  session = { id, startPage: b.progress ?? 0, began: Date.now(), elapsed: 0, runningSince: Date.now() };
+  saveSession();
+  enterReadingRoom();
+}
+
+function enterReadingRoom() {
+  const b = byId(session.id);
+  if (!b) { session = null; saveSession(); return; }
+  const room = $('#readingRoom');
+  const p = readingPace(b);
+  const togo = b.pages ? Math.max(0, b.pages - (b.progress ?? 0)) : null;
+  room.innerHTML = `<div class="rr-stage">
+    <div class="rr-book" style="--t:${thickness(b) * 1.6}px"><span class="book3d">${coverHTML(b)}<span class="pages"></span></span></div>
+    <div class="rr-info">
+      <p class="rr-eyebrow">Reading</p>
+      <h2 class="rr-title">${esc(b.title)}</h2>
+      <p class="rr-author">${esc(b.author)}</p>
+      <div class="rr-reading">
+        <p class="rr-timer" aria-live="off">00:00</p>
+        <p class="rr-sub">from p. ${session.startPage}${togo != null ? ` · ${plural(togo, 'page')} to go` : ''}${p.pages ? ` · about ${Math.round(p.perDay)} a day lately` : ''}</p>
+        <div class="rr-controls">
+          <button type="button" class="ghost rr-pause" data-rr="pause">Pause</button>
+          <button type="button" class="stamp" data-rr="done">I’m done</button>
+        </div>
+        <p class="rr-hint mono">space to pause · esc when you’re done</p>
+      </div>
+      <form class="rr-finish" hidden autocomplete="off">
+        <p class="rr-summary"></p>
+        <label><span class="label">What page are you on?</span>
+          <input type="number" name="page" min="0" step="1"${b.pages ? ` max="${b.pages}"` : ''} value="${b.progress ?? session.startPage}" required></label>
+        <label><span class="label">A note <em>optional</em></span>
+          <input type="text" name="note" placeholder="Where you are, a line you liked…"></label>
+        <div class="rr-controls">
+          <button type="button" class="link-btn" data-rr="discard">Discard session</button>
+          <span class="spacer"></span>
+          <button type="button" class="ghost" data-rr="back">Keep reading</button>
+          <button type="submit" class="stamp">Log it</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  room.hidden = false;
+  document.documentElement.classList.add('reading');
+  requestAnimationFrame(() => room.classList.add('in'));
+  lampOverBook();
+  clearInterval(sessionTick);
+  sessionTick = setInterval(tickSession, 250);
+  tickSession();
+  $('[data-rr=done]', room).focus();
+}
+
+function tickSession() {
+  if (!session) return;
+  const t = clockText(sessionMs());
+  const el = $('#readingRoom .rr-timer');
+  if (el) el.textContent = t;
+  $('#readingRoom')?.classList.toggle('paused', !session.runningSince);
+  const b = byId(session.id);
+  document.title = `${session.runningSince ? '▶' : '❚❚'} ${t} · ${b?.title ?? 'Reading'}`;
+}
+
+function pauseSession(pause = !!session.runningSince) {
+  if (pause && session.runningSince) { session.elapsed += Date.now() - session.runningSince; session.runningSince = null; }
+  else if (!pause && !session.runningSince) session.runningSince = Date.now();
+  saveSession();
+  const btn = $('#readingRoom [data-rr=pause]');
+  if (btn) btn.textContent = session.runningSince ? 'Pause' : 'Resume';
+  tickSession();
+}
+
+function showFinish(show = true) {
+  const room = $('#readingRoom');
+  if (show) pauseSession(true); else pauseSession(false);
+  $('.rr-reading', room).hidden = show;
+  $('.rr-finish', room).hidden = !show;
+  if (show) {
+    const mins = Math.round(sessionMs() / 60000);
+    $('.rr-summary', room).textContent = mins >= 1 ? `${plural(mins, 'minute')} of reading.` : 'Under a minute. Log it anyway?';
+    $('.rr-finish [name=page]', room).select();
+  } else {
+    $('[data-rr=done]', room).focus();
+  }
+}
+
+async function finishSession(form) {
+  const b = byId(session.id);
+  const page = form.page.value === '' ? null : Number(form.page.value);
+  const note = form.note.value.trim();
+  const minutes = Math.max(1, Math.round(sessionMs() / 60000));
+  const moved = page != null && page > (b.progress ?? 0);
+  try {
+    const journal = withEntry(b, { date: today(), to: moved ? page : null, note, minutes });
+    await saveJournal(b, journal, moved ? page : b.progress);
+    const read = moved ? page - (b.progress ?? 0) : 0;
+    toast(`Logged ${plural(minutes, 'minute')}${read ? ` and ${plural(read, 'page')}` : ''}.`);
+    leaveReadingRoom();
+    render();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function leaveReadingRoom() {
+  clearInterval(sessionTick);
+  session = null;
+  saveSession();
+  document.title = pageTitle;
+  const room = $('#readingRoom');
+  room.classList.remove('in');
+  document.documentElement.classList.remove('reading');
+  setTimeout(() => { if (!session) { room.hidden = true; room.innerHTML = ''; } }, 450);
+  lampBack();
+}
+
+// The lamp glides over to hang just above the book, and switches on.
+function lampOverBook() {
+  if (!lampBefore) lampBefore = { pos: lampPos, pulled: bulbPulled };
+  const book = $('#readingRoom .rr-book').getBoundingClientRect();
+  const pageW = document.documentElement.clientWidth;
+  const x = book.left + book.width / 2 + scrollX;
+  const drop = Math.max(0, scrollY + book.top - 64 - BULB_Y);
+  glideLamp({ dx: x - pageW / 2, drop }, x);
+  bulbPulled = true;
+  applyLamp();
+}
+function lampBack() {
+  if (!lampBefore) return;
+  const { pos, pulled } = lampBefore;
+  lampBefore = null;
+  const from = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lamp-x')) || 0;
+  lampPos = pos;
+  bulbPulled = pulled;
+  applyLamp();
+  glide(() => placeLamp(), from);
+}
+function glideLamp(pos, toX) {
+  const from = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lamp-x')) || toX;
+  lampPos = pos; // not saved: your own spot for the lamp stays as it was
+  glide(() => placeLamp(), from);
+}
+// Animate the move, keep the cord reaching the ceiling the whole way, and give
+// the shade a swing from the motion.
+function glide(move, fromX) {
+  const root = document.documentElement;
+  const before = lampDrop;
+  root.classList.add('lamp-gliding');
+  move();
+  const cord = Math.max(before, lampDrop);
+  $('#lampCord').setAttribute('y1', -cord);
+  const dx = (parseFloat(getComputedStyle(root).getPropertyValue('--lamp-x')) || fromX) - fromX;
+  if (!calm.matches) swing.vel = Math.max(-.5, Math.min(.5, swing.vel - dx / 900));
+  setTimeout(() => { root.classList.remove('lamp-gliding'); placeLamp(); }, 1300);
+}
+
+$('#readingRoom').addEventListener('click', e => {
+  const act = e.target.closest('[data-rr]')?.dataset.rr;
+  if (act === 'pause') pauseSession();
+  if (act === 'done') showFinish(true);
+  if (act === 'back') showFinish(false);
+  if (act === 'discard' && confirm('Discard this reading session? Nothing will be logged.')) { leaveReadingRoom(); toast('Session discarded.'); }
+});
+$('#readingRoom').addEventListener('submit', e => { e.preventDefault(); finishSession(e.target); });
+document.addEventListener('keydown', e => {
+  if (!session || $('#readingRoom').hidden) return;
+  const finishing = !$('#readingRoom .rr-finish').hidden;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); showFinish(!finishing); }
+  else if (e.key === ' ' && !finishing && !e.target.closest('input, textarea, button')) { e.preventDefault(); pauseSession(); }
+}, true);
+addEventListener('resize', () => { if (session && !$('#readingRoom').hidden) lampOverBook(); });
+
+// ---------- recommendations ----------
+// "For You": books picked from Open Library to match your shelves, weighted
+// by your ratings (see lib/recommend.js). Each book card also shows a few
+// books like it. Anything can go straight onto your wishlist.
+
+const recDismissed = new Set(JSON.parse(localStorage.getItem('recDismissed') || '[]'));
+const recTitle = t => fold(String(t)).split(/[:(]/)[0].replace(/[^a-z0-9]+/g, ' ').trim();
+const inLibrary = r => state.books.some(b => recTitle(b.title) === recTitle(r.title));
+
+async function loadRecs(refresh = false) {
+  state.recs = { status: 'loading', data: state.recs?.data ?? null };
+  if (state.view === 'foryou') render();
+  try {
+    state.recs = { status: 'ready', data: await api(`/api/recommendations${refresh ? '?refresh' : ''}`) };
+  } catch (err) {
+    state.recs = { status: 'error', error: err.message === 'Unknown endpoint' ? 'Restart the server (npm start) to get recommendations.' : err.message, data: state.recs?.data ?? null };
+  }
+  if (state.view === 'foryou') render();
+}
+
+// "Because you loved Stoner and have California on your shelf"
+const becausePhrase = list => {
+  if (!list?.length) return '';
+  const link = b => `<button class="link-btn" data-action="open" data-id="${esc(b.id)}">${esc(b.title)}</button>`;
+  const say = b => (b.rating >= 4 ? `loved ${link(b)}` : b.status === 'read' ? `read ${link(b)}` : b.status === 'reading' ? `are reading ${link(b)}`
+    : b.status === 'wishlist' ? `want ${link(b)}` : `have ${link(b)} on your shelf`);
+  const verb = b => say(b).split(' ')[0];
+  if (list.length === 2 && verb(list[0]) === verb(list[1]) && !say(list[1]).endsWith('on your shelf')) {
+    return `Because you ${say(list[0])} and ${link(list[1])}`; // "loved East of Eden and Stoner"
+  }
+  return `Because you ${list.map(say).join(' and ')}`;
+};
+
+function recCardHTML(r, i, compact = false) {
+  const owned = inLibrary(r);
+  const stars = r.rating ? `<span class="rec-stars" title="${r.rating} average from ${plural(r.ratings, 'reader')} on Open Library">${starsHTML(Math.round(r.rating * 2) / 2)} <small>${r.rating}</small></span>` : '';
+  return `<article class="rec${compact ? ' compact' : ''}" data-rec="${i}">
+    <a class="rec-cover" href="${esc(r.url)}" target="_blank" rel="noopener" title="See it on Open Library"><img src="${esc(r.cover.replace('-L.jpg', '-M.jpg'))}" alt="" loading="lazy"></a>
+    <div class="rec-body">
+      <h3 class="rec-title">${esc(r.title)}</h3>
+      <p class="rec-by">${esc(r.author)}${r.year ? ` · ${r.year}` : ''}</p>
+      ${compact ? '' : stars}
+      ${compact ? '' : `<p class="rec-why">${r.moreBy ? `More by ${esc(r.moreBy)}. ` : ''}${becausePhrase(r.because)}</p>`}
+      ${r.shared?.length ? `<p class="rec-shared">${r.shared.map(s => `<span>${esc(s)}</span>`).join('')}</p>` : ''}
+      <div class="rec-actions">
+        ${owned ? '<span class="rec-added">✓ In your library</span>'
+          : `<button type="button" class="link-btn rec-add" data-action="recWish" data-rec="${i}">+ Wishlist</button>`}
+        ${compact || owned ? '' : `<button type="button" class="link-btn rec-skip" data-action="recSkip" data-rec="${i}">Not for me</button>`}
+      </div>
+    </div>
+  </article>`;
+}
+
+function forYouView() {
+  if (!state.recs) { state.recs = { status: 'loading', data: null }; queueMicrotask(() => loadRecs()); }
+  const { status, data, error } = state.recs;
+  const books = (data?.books || []).filter(r => !recDismissed.has(r.key));
+  state.recList = books;
+  const basis = data?.basis;
+  const basisLine = basis ? [basis.rated && `${plural(basis.rated, 'book')} you rated`, basis.read && `${basis.read} you've read`,
+    basis.reading && `${basis.reading} you're reading`, basis.other && `${basis.other} on your shelves and wishlist`].filter(Boolean).join(', ') : '';
+  const head = `<p class="eyebrow review-years">Recommendations</p>
+    <h2 class="review-title">For you</h2>
+    <p class="sub rec-sub">${basisLine ? `Picked from Open Library to match ${basisLine}. Your ratings count most: rate more books to sharpen these.` : 'Picked from Open Library to match your shelves.'}
+      <button class="link-btn rec-refresh" data-action="recRefresh"${status === 'loading' ? ' disabled' : ''}>${status === 'loading' ? 'Looking…' : 'Refresh'}</button></p>
+    ${data?.taste?.length ? `<p class="taste"><span class="label">Your taste, as your shelves tell it</span>${data.taste.map(t => `<span class="taste-chip">${esc(t.subject)}</span>`).join('')}</p>` : ''}`;
+  if (status === 'loading' && !data) return `${head}<div class="rec-loading"><span class="dots"><i></i><i></i><i></i></span>Reading your shelves and asking Open Library… the first time takes a few seconds.</div>`;
+  if (status === 'error' && !data) return `${head}${empty(`Couldn't get recommendations: ${esc(error)}`)}`;
+  return `${head}
+    ${books.length ? `<div class="rec-grid">${books.map((r, i) => recCardHTML(r, i)).join('')}</div>` : empty('No recommendations left. Try Refresh, or rate a few more books.')}`;
+}
+
+async function addRecToWishlist(r, btn) {
+  if (inLibrary(r)) return;
+  btn.disabled = true;
+  try {
+    const saved = await api('/api/books', {
+      method: 'POST',
+      body: { title: r.title, author: r.author, status: 'wishlist', owned: false, pages: r.pages, year: r.year, isbn: r.isbn, cover: r.cover, category: r.category },
+    });
+    state.books.push(saved);
+    btn.outerHTML = '<span class="rec-added">✓ On your wishlist</span>';
+    renderLedger();
+    toast(`“${r.title}” is on your wishlist.`);
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message, true);
+  }
+}
+
+// Similar books, inside a book's card.
+const similarCache = new Map();
+async function loadSimilar(b, d) {
+  const box = $('.similar', d);
+  if (!box) return;
+  try {
+    if (!similarCache.has(b.id)) similarCache.set(b.id, (await api(`/api/similar?id=${encodeURIComponent(b.id)}`)).books);
+    const list = similarCache.get(b.id).filter(r => !recDismissed.has(r.key)).slice(0, 6);
+    if (!$('.similar', d)) return; // card closed meanwhile
+    box.dataset.list = JSON.stringify(list);
+    box.querySelector('.similar-list').innerHTML = list.length
+      ? list.map((r, i) => recCardHTML(r, i, true)).join('')
+      : '<p class="muted">Open Library had nothing close enough.</p>';
+  } catch (err) {
+    box.querySelector('.similar-list').innerHTML = `<p class="muted">${esc(err.message === 'Unknown endpoint' ? 'Restart the server (npm start) to see similar books.' : err.message)}</p>`;
+  }
+}
+$('#drawer').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action=recWish]');
+  if (!btn) return;
+  e.stopPropagation();
+  const list = JSON.parse(btn.closest('.similar').dataset.list || '[]');
+  addRecToWishlist(list[+btn.dataset.rec], btn);
+});
+
 // ---------- render & events ----------
 
 function render() {
@@ -1652,6 +2087,8 @@ function render() {
     v.innerHTML = reviewView();
   } else if (state.view === 'journal') {
     v.innerHTML = journalView();
+  } else if (state.view === 'foryou') {
+    v.innerHTML = forYouView();
   } else if (state.view === 'rankings') {
     v.innerHTML = rankingsView();
     bindRankings();
@@ -1711,8 +2148,19 @@ view.addEventListener('click', async e => {
     const sc = t.closest('.shelf-row').querySelector('.shelf-scroll');
     sc.scrollBy({ left: Number(t.dataset.dir) * sc.clientWidth * 0.8, behavior: 'smooth' });
   }
-  else if (action === 'resetOrder') saveShelfOrder(t.dataset.value, null);
+  else if (action === 'resetOrder') {
+    const keep = (state.settings.shelfOrder?.[t.dataset.value] || []).filter(isDecor); // objects stay, books go back to the default order
+    saveShelfOrder(t.dataset.value, keep.length ? keep : null);
+  }
   else if (action === 'shelfMode') { state.shelfMode = t.dataset.value; localStorage.setItem('shelfMode', state.shelfMode); render(); }
+  else if (action === 'startReading') startReading(t.dataset.id);
+  else if (action === 'recWish') addRecToWishlist(state.recList[+t.dataset.rec], t);
+  else if (action === 'recSkip') { const r = state.recList[+t.dataset.rec]; recDismissed.add(r.key); localStorage.setItem('recDismissed', JSON.stringify([...recDismissed])); t.closest('.rec').classList.add('leaving'); setTimeout(render, 280); }
+  else if (action === 'recRefresh') loadRecs(true);
+  else if (action === 'decorShelf') { state.decorShelf = t.dataset.value; $$('.decor-to .chip').forEach(c => c.classList.toggle('active', c === t)); }
+  else if (action === 'addDecor') addDecor(t.dataset.value);
+  else if (action === 'removeDecor') removeDecor(t.dataset.value);
+  else if (action === 'decor') pokeDecor(t);
   else if (action === 'material') { state.material = t.dataset.value; localStorage.setItem('shelfMaterial', state.material); applyMaterial(); render(); }
   else if (action === 'arrange') { state.arrange = t.dataset.value; localStorage.setItem('arrange', state.arrange); state.pick = null; render(); }
   else if (action === 'fillCategories') fillCategories(t);
@@ -1812,30 +2260,56 @@ function slideTo(row, mutate) {
   });
 }
 
+// Books move along their own shelf. Objects can go anywhere: along a shelf,
+// onto another shelf, or straight from the Decorate menu onto a shelf.
 view.addEventListener('dragstart', e => {
+  const opt = e.target.closest?.('.decor-opt[draggable]');
+  if (opt) {
+    const kind = opt.dataset.value;
+    const holder = document.createElement('div');
+    holder.innerHTML = decorSlot({ id: newDecorId(kind), kind });
+    drag = { slot: holder.firstElementChild, row: null, scroller: null, before: null, from: null, decor: true, fresh: kind };
+    e.dataTransfer.effectAllowed = 'copyMove';
+    e.dataTransfer.setData('text/plain', kind);
+    e.dataTransfer.setDragImage(opt.querySelector('svg'), 20, 40);
+    view.classList.add('dragging-books', 'dragging-decor');
+    return;
+  }
   const slot = e.target.closest?.('.spines[data-shelf] > .slot');
   if (!slot) return;
   const row = slot.parentElement;
-  drag = { slot, row, scroller: row.closest('.shelf-scroll'), before: shelfIds(row) };
+  const decor = slot.classList.contains('decor-slot');
+  drag = { slot, row, scroller: row.closest('.shelf-scroll'), before: shelfIds(row), from: row, decor };
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', slot.firstElementChild.dataset.id);
   tip.hidden = true;
   view.classList.add('dragging-books');
+  if (decor) view.classList.add('dragging-decor');
   requestAnimationFrame(() => slot.classList.add('dragging'));
 });
 
 view.addEventListener('dragover', e => {
   if (!drag) return;
   const scroller = e.target.closest('.shelf-scroll');
-  if (scroller !== drag.scroller) return;
+  if (!scroller) return;
+  if (scroller !== drag.scroller) {
+    // Books stay on their own shelf; objects hop onto whichever shelf you're over.
+    if (!drag.decor) return;
+    const row = $('.spines[data-shelf]', scroller);
+    if (!row || row.classList.contains('by-category')) return;
+    drag.row = row;
+    drag.scroller = scroller;
+    row.appendChild(drag.slot);
+    drag.slot.classList.add('dragging');
+  }
   e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  // Near either edge, keep the shelf scrolling so books can travel any distance.
+  e.dataTransfer.dropEffect = drag.fresh ? 'copy' : 'move';
+  // Near either edge, keep the shelf scrolling so things can travel any distance.
   const r = scroller.getBoundingClientRect();
   const edge = 70;
   if (e.clientX < r.left + edge) scroller.scrollLeft -= Math.ceil((r.left + edge - e.clientX) / 4);
   else if (e.clientX > r.right - edge) scroller.scrollLeft += Math.ceil((e.clientX - (r.right - edge)) / 4);
-  // Insert before the first other book whose centre is right of the pointer.
+  // Insert before the first other item whose centre is right of the pointer.
   const x = e.clientX - drag.row.getBoundingClientRect().left;
   const next = [...drag.row.children].find(s => s !== drag.slot && x < s.offsetLeft + s.offsetWidth / 2) ?? null;
   if (drag.slot.nextElementSibling === next) return;
@@ -1846,13 +2320,26 @@ view.addEventListener('drop', e => { if (drag) { e.preventDefault(); drag.droppe
 
 view.addEventListener('dragend', () => {
   if (!drag) return;
-  const { slot, row, before, dropped } = drag;
+  const { slot, row, from, before, dropped, fresh } = drag;
   drag = null;
   slot.classList.remove('dragging');
-  view.classList.remove('dragging-books');
-  const ids = shelfIds(row);
-  if (!dropped) { render(); return; } // Escape, or let go off the shelf: put it back
-  if (ids.join('\n') !== before.join('\n')) saveShelfOrder(row.dataset.shelf, ids);
+  view.classList.remove('dragging-books', 'dragging-decor');
+  if (!dropped || !row) { render(); return; } // Escape, or let go off a shelf: put it back
+  if (fresh) {
+    $('.decor-pick')?.removeAttribute('open');
+    saveShelfOrder(row.dataset.shelf, shelfIds(row));
+    toast(`${DECOR[fresh].name} added.`);
+    return;
+  }
+  // Read both shelves before saving: each save re-renders the page.
+  const toIds = shelfIds(row);
+  if (from && from !== row) {
+    const fromIds = shelfIds(from);
+    saveShelfOrder(from.dataset.shelf, fromIds.length ? fromIds : null);
+    saveShelfOrder(row.dataset.shelf, toIds);
+    return;
+  }
+  if (toIds.join('\n') !== before.join('\n')) saveShelfOrder(row.dataset.shelf, toIds);
 });
 
 view.addEventListener('keydown', e => {
@@ -1908,11 +2395,38 @@ async function load() {
   const focused = document.activeElement?.id;
   render();
   if (focused === 'catalogSearch') $('#catalogSearch')?.focus();
+  if (session && $('#readingRoom').hidden) enterReadingRoom(); // a session was running before a reload
 }
 window.addEventListener('focus', load);
 
 api('/api/config').then(c => {
   state.config = c;
   $('#libraryDir').textContent = c.libraryDir;
+  if (STATIC) $('.colophon span').textContent = c.label ?? 'Read-only copy';
 }).catch(() => {});
 load();
+
+// ---------- the read-only public copy ----------
+// Editing controls are hidden by CSS (:root[data-static]); this stops the rest:
+// typing into a card, dragging books, and actions that would save something.
+if (STATIC) {
+  const KEEP = '#catalogSearch, #catalogSort, #librarySearch';
+  const lock = root => $$('input, textarea, select', root).forEach(el => {
+    if (el.matches(KEEP)) return;
+    if (el.matches('input[type=text], input[type=number], input[type=date], input:not([type]), textarea')) el.readOnly = true;
+    else el.disabled = true;
+  });
+  new MutationObserver(() => { lock(view); lock($('#drawer')); }).observe(document.body, { childList: true, subtree: true });
+  const SAVES = new Set(['add', 'addDecor', 'removeDecor', 'resetOrder', 'startReading', 'finish', 'startPick', 'recWish', 'recSkip', 'recRefresh', 'fillCategories', 'move']);
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-action]');
+    if (t && SAVES.has(t.dataset.action)) { e.preventDefault(); e.stopImmediatePropagation(); toast(READ_ONLY); }
+  }, true);
+  document.addEventListener('dragstart', e => { if (e.target.closest?.('#view')) e.preventDefault(); }, true);
+  document.addEventListener('submit', e => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+  // star ratings in a card, and Alt+arrow moving books along a shelf
+  document.addEventListener('click', e => { if (e.target.closest?.('#drawer .stars')) e.stopImmediatePropagation(); }, true);
+  document.addEventListener('keydown', e => {
+    if (e.target.closest?.('#drawer .stars') || (e.altKey && /^Arrow/.test(e.key))) e.stopImmediatePropagation();
+  }, true);
+}

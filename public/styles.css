@@ -18,6 +18,9 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` always wins over a component's own display rule. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -1354,3 +1357,270 @@ body { position: relative; }
 .search-hit mark { background: color-mix(in srgb, #e8b04a 40%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
 :root[data-theme="night"] .search-hit mark { background: color-mix(in srgb, #e8b04a 32%, transparent); }
 .search-empty { padding: 18px 12px; font: italic 15px var(--serif); color: var(--ink-faint); }
+
+
+/* ---------- reading mode ----------
+   A dark room over the page; the lamp (above it, z 5–6) glides over and its
+   light falls on the book. */
+.reading-room {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(16, 11, 7, .96), rgba(8, 5, 3, .99) 70%);
+  backdrop-filter: blur(8px) grayscale(.4);
+  color: #efe5d3;
+  opacity: 0;
+  transition: opacity .45s ease;
+  --ink: #efe5d3; --ink-soft: #b9aa94; --ink-faint: #8e806d; --line: #4a3d32; --bg: #1d1713; --surface: #251d17;
+}
+/* Hidden when you're not reading, and never in the way while it fades. */
+.reading-room[hidden] { display: none; }
+.reading-room:not(.in) { pointer-events: none; }
+.reading-room.in { opacity: 1; }
+:root.reading { overflow: hidden; }
+/* In the dark room the lamp always lights by adding light, day or night. */
+:root.reading .lamp-light { mix-blend-mode: screen; --beam-core: rgba(255, 226, 170, .55); --beam: rgba(255, 196, 120, .3); --beam-far: rgba(255, 170, 90, .14); }
+:root.reading .lamp-light::before { clip-path: polygon(46.25% 0, 53.75% 0, 100% 100%, 0 100%); }
+:root.lamp-gliding .lamp, :root.lamp-gliding .lamp-light { transition: left 1.2s cubic-bezier(.45, 0, .2, 1), top 1.2s cubic-bezier(.45, 0, .2, 1), opacity .3s; }
+
+.rr-stage { display: flex; align-items: center; gap: 64px; padding: 40px; max-width: 900px; }
+.rr-book { perspective: 900px; flex: none; }
+.rr-book .book3d { transform: rotateY(-16deg); animation: rr-float 7s ease-in-out infinite; }
+.rr-book .cover { width: 210px; height: auto; box-shadow: 6px 10px 30px rgba(0, 0, 0, .55); }
+@keyframes rr-float { 50% { transform: rotateY(-12deg) translateY(-4px); } }
+.reading-room.paused .rr-book .book3d { animation-play-state: paused; }
+
+.rr-info { min-width: 300px; max-width: 420px; }
+.rr-eyebrow { margin: 0 0 6px; font: 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
+.rr-title { margin: 0; font: 400 34px/1.15 var(--serif); }
+.rr-author { margin: 6px 0 0; font: italic 18px var(--serif); color: var(--ink-soft); }
+.rr-timer { margin: 34px 0 4px; font: 300 64px/1 var(--serif); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.reading-room.paused .rr-timer { color: var(--ink-faint); animation: rr-blink 1.6s steps(1) infinite; }
+@keyframes rr-blink { 50% { opacity: .45; } }
+.rr-sub { margin: 0; font: 12px var(--mono); color: var(--ink-faint); }
+.rr-controls { display: flex; align-items: center; gap: 12px; margin-top: 26px; }
+.reading-room .stamp { background: #efe5d3; color: #1d1713; border-color: #efe5d3; }
+.reading-room .ghost { color: var(--ink-soft); border-color: var(--line); }
+.reading-room .ghost:hover { color: var(--ink); border-color: var(--ink-faint); }
+.rr-hint { margin: 18px 0 0; font-size: 11px; color: var(--ink-faint); opacity: .8; }
+.rr-finish { margin-top: 30px; display: grid; gap: 16px; }
+.rr-finish[hidden], .rr-reading[hidden] { display: none; }
+.rr-summary { margin: 0; font: italic 20px var(--serif); color: var(--ink-soft); }
+.rr-finish label { display: grid; gap: 6px; }
+.rr-finish .label { font: 11px var(--mono); color: var(--ink-faint); }
+.rr-finish .label em { font-style: normal; opacity: .7; }
+.rr-finish input { padding: 6px 0; border: none; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: 20px var(--serif); outline: none; }
+.rr-finish input:focus { border-bottom-color: var(--ink-soft); }
+.rr-finish .link-btn { font: 12px var(--mono); color: var(--ink-faint); }
+.rr-finish .link-btn:hover { color: var(--accent); }
+
+.now-actions { display: flex; gap: 22px; align-items: baseline; margin-top: auto; padding-top: 12px; }
+.now-actions .finish { margin-top: 0; padding-top: 0; }
+.start-reading { font: 13px var(--mono); color: var(--ink); }
+
+@media (max-width: 720px) {
+  .rr-stage { flex-direction: column; gap: 28px; text-align: center; }
+  .rr-controls { justify-content: center; }
+  .rr-book .cover { width: 150px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rr-book .book3d, .reading-room.paused .rr-timer { animation: none; }
+}
+.rr-finish input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+.rr-finish input[type=number]::-webkit-inner-spin-button, .rr-finish input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+
+/* ---------- objects on the shelves ---------- */
+.decor-slot { position: relative; margin: 0 12px 0 6px; }
+.decor { display: block; padding: 0; border: none; background: none; cursor: pointer; color: var(--ink-faint); }
+.decor-slot[draggable] .decor { cursor: grab; }
+.decor-art { display: block; overflow: visible; filter: drop-shadow(0 3px 3px rgba(40, 24, 10, .22)); }
+:root[data-theme="night"] .decor-art { filter: brightness(.86) sepia(.06) drop-shadow(0 3px 3px rgba(0, 0, 0, .4)); }
+.decor-remove {
+  position: absolute;
+  top: calc(100% - 31px - var(--h, 60px));
+  right: -10px;
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  font: 13px/1 var(--mono);
+  color: var(--ink-soft);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.decor-slot:hover .decor-remove { opacity: 1; }
+.decor-remove:hover { color: var(--accent); border-color: var(--accent); }
+.dragging-books .decor-remove { display: none; }
+.decor-slot { --h: 70px; }
+.decor-pothos { --h: 130px; } .decor-zebra { --h: 164px; } .decor-plant, .decor-globe { --h: 124px; } .decor-candle { --h: 96px; } .decor-mug { --h: 78px; } .decor-cat { --h: 66px; } .decor-bookend { --h: 132px; }
+.decor-slot.just-placed .decor-art { animation: decor-arrive .9s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes decor-arrive { 0% { transform: translateY(-40px); opacity: 0; } 60% { opacity: 1; } 100% { transform: none; } }
+
+/* plant: a breath of air now and then; rustles when you touch it */
+.decor-sway { transform-box: view-box; transform-origin: 35px 82px; animation: plant-sway 8s ease-in-out infinite; }
+@keyframes plant-sway { 0%, 100% { transform: rotate(-.8deg); } 50% { transform: rotate(.8deg); } }
+.decor-plant.poke .decor-sway { animation: plant-rustle .9s ease-in-out; }
+@keyframes plant-rustle { 20% { transform: rotate(-5deg); } 45% { transform: rotate(4deg); } 70% { transform: rotate(-2deg); } 100% { transform: none; } }
+
+/* pothos and zebra plant: the leaves rustle when touched; the pot stays put */
+.plant-leaves { transform-box: view-box; }
+.decor-pothos.poke .plant-leaves { animation: plant-rustle .9s ease-in-out; }
+.decor-zebra.poke .plant-leaves { animation: zebra-rustle .8s ease-in-out; }
+@keyframes zebra-rustle { 20% { transform: rotate(-2.5deg); } 45% { transform: rotate(2deg); } 70% { transform: rotate(-1deg); } 100% { transform: none; } }
+
+/* candle: a living flame, brighter glow at night; click to blow out / relight */
+.decor-flame { transform-box: view-box; transform-origin: 22px 38px; animation: flame-flicker 2.6s ease-in-out infinite; }
+@keyframes flame-flicker {
+  0%, 100% { transform: scale(1, 1) skewX(0); } 20% { transform: scale(.96, 1.05) skewX(2deg); }
+  40% { transform: scale(1.03, .96) skewX(-1.5deg); } 60% { transform: scale(.98, 1.04) skewX(1deg); } 80% { transform: scale(1.02, .98) skewX(-2deg); }
+}
+.flame-halo { animation: halo-pulse 3.4s ease-in-out infinite; }
+@keyframes halo-pulse { 50% { opacity: .75; } }
+:root[data-theme="night"] .decor-candle .decor-art, :root.reading .decor-candle .decor-art { filter: drop-shadow(0 0 10px rgba(255, 190, 100, .45)) drop-shadow(0 3px 3px rgba(0, 0, 0, .4)); }
+.decor-candle.out .decor-flame { display: none; }
+:root[data-theme="night"] .decor-candle.out .decor-art { filter: brightness(.86) drop-shadow(0 3px 3px rgba(0, 0, 0, .4)); }
+.decor-candle.out.poke .smoke { animation: smoke-curl 2.4s ease-out; }
+@keyframes smoke-curl { 0% { opacity: .7; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-14px); } }
+
+/* mug: steam curling up */
+.steam path { opacity: 0; animation: steam-rise 4.2s ease-in-out infinite; }
+.steam path:nth-child(2) { animation-delay: -1.4s; }
+.steam path:nth-child(3) { animation-delay: -2.8s; }
+@keyframes steam-rise { 0% { opacity: 0; transform: translateY(6px); } 35% { opacity: .55; } 100% { opacity: 0; transform: translateY(-10px); } }
+:root[data-theme="day"] .steam { stroke: #c8bba5; }
+.decor-mug.poke .steam path { animation-duration: 1.4s; }
+
+/* cat: breathing, z's drifting up; click and it opens its eyes, flicks an ear */
+.cat-breathe { transform-box: view-box; transform-origin: 70px 64px; animation: cat-breathe 3.6s ease-in-out infinite; }
+@keyframes cat-breathe { 50% { transform: scaleY(1.035); } }
+.cat-tail { transform-box: view-box; transform-origin: 108px 63px; }
+.zz text { opacity: 0; animation: zz-float 4.5s ease-out infinite; }
+.zz text:nth-child(2) { animation-delay: 1.5s; }
+.zz text:nth-child(3) { animation-delay: 3s; }
+@keyframes zz-float { 0% { opacity: 0; transform: translate(0, 6px); } 25% { opacity: .8; } 100% { opacity: 0; transform: translate(6px, -8px); } }
+.eyes-open { display: none; }
+.decor-cat.poke .eyes-open { display: inline; }
+.decor-cat.poke .eyes-shut, .decor-cat.poke .zz { display: none; }
+.decor-cat .ear { transform-box: fill-box; transform-origin: 50% 100%; }
+.decor-cat.poke .ear { animation: ear-flick .5s ease-in-out 2; }
+@keyframes ear-flick { 50% { transform: rotate(-14deg); } }
+.decor-cat.poke .cat-tail { animation: tail-flick .8s ease-in-out 2; }
+@keyframes tail-flick { 50% { transform: rotate(-4deg); } }
+
+/* globe: turns slowly; click to give it a spin */
+.globe-land { animation: globe-turn 30s linear infinite; }
+@keyframes globe-turn { from { transform: translate(11px, 21px); } to { transform: translate(-61px, 21px); } }
+.decor-globe.poke .globe-land { animation-duration: 1.2s; }
+
+/* bookend: a little wobble */
+.decor-bookend.poke .decor-art { transform-origin: 50% 100%; animation: wobble .7s ease-in-out; }
+@keyframes wobble { 25% { transform: rotate(-3deg); } 60% { transform: rotate(2deg); } }
+
+/* the Decorate menu */
+.decor-pick { position: relative; }
+.decor-pick summary { list-style: none; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.decor-pick summary::-webkit-details-marker { display: none; }
+.decor-pick summary::before { content: '✦'; font-size: 11px; color: var(--ink-faint); }
+.decor-pick summary::after { content: '▾'; font-size: 10px; color: var(--ink-faint); }
+.decor-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 420px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 12px 30px rgba(20, 12, 4, .18);
+}
+.decor-to { display: flex; flex-wrap: wrap; align-items: baseline; gap: 14px; margin: 0 0 12px; font: 11px var(--mono); color: var(--ink-faint); }
+.decor-to .chip { font-size: 12px; }
+.decor-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.decor-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 98px;
+  padding: 8px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font: 11px var(--mono);
+  color: var(--ink-soft);
+}
+.decor-opt:hover { border-color: var(--line); background: color-mix(in srgb, var(--ink) 4%, transparent); color: var(--ink); }
+.decor-thumb { display: flex; align-items: flex-end; height: 68px; }
+.decor-help { margin: 12px 0 0; font: italic 13px var(--serif); color: var(--ink-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .decor-sway, .decor-flame, .flame-halo, .steam path, .cat-breathe, .zz text, .globe-land { animation: none; }
+  .steam path { opacity: .3; }
+}
+
+/* Dragging objects: the menu steps aside, and every shelf you can drop on shows it. */
+.dragging-decor .decor-menu { opacity: .2; pointer-events: none; transition: opacity .2s; }
+.dragging-decor .spines[data-shelf]:not(.by-category) { outline: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent); outline-offset: -2px; border-radius: 4px; }
+.decor-opt[draggable] { cursor: grab; }
+
+
+/* ---------- recommendations ---------- */
+.rec-sub { max-width: 640px; }
+.rec-refresh { margin-left: 8px; font: 12px var(--mono); text-decoration: underline; text-underline-offset: 3px; color: var(--ink-soft); }
+.taste { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0 0 30px; }
+.taste .label { width: 100%; font: 11px var(--mono); color: var(--ink-faint); }
+.taste-chip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font: italic 14px var(--serif); color: var(--ink-soft); }
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px 28px; }
+.rec { display: flex; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); transition: opacity .25s, transform .25s; }
+.rec.leaving { opacity: 0; transform: translateX(-12px); }
+.rec-cover { flex: none; align-self: flex-start; }
+.rec-cover img { display: block; width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 1px; box-shadow: 2px 3px 8px rgba(40, 24, 10, .2); background: var(--line); }
+.rec-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rec-title { margin: 0; font: 400 19px/1.2 var(--serif); }
+.rec-by { margin: 0; font: italic 15px var(--serif); color: var(--ink-soft); }
+.rec-stars { display: flex; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--ink-faint); }
+.rec-stars .stars { font-size: 11px; }
+.rec-why { margin: 4px 0 0; font: 14px/1.4 var(--serif); color: var(--ink-soft); }
+.rec-why .link-btn { font: italic 14px var(--serif); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.rec-shared { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 2px 0 0; font: 11px var(--mono); color: var(--ink-faint); }
+.rec-actions { display: flex; gap: 18px; margin-top: auto; padding-top: 8px; font: 12px var(--mono); }
+.rec-add { color: var(--ink); }
+.rec-skip { color: var(--ink-faint); }
+.rec-added { color: var(--ink-soft); }
+.rec-loading { display: flex; align-items: center; gap: 14px; padding: 30px 0; font: italic 16px var(--serif); color: var(--ink-faint); }
+.dots { display: inline-flex; gap: 5px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); animation: dot-bounce 1.2s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot-bounce { 40% { transform: translateY(-5px); opacity: .5; } }
+
+/* In a book's card: a compact row of similar books. */
+.similar { margin-top: 28px; }
+.similar-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; margin-top: 6px; }
+.similar-list > p { grid-column: 1 / -1; font: italic 14px var(--serif); }
+.rec.compact { padding: 12px 0; gap: 12px; }
+.rec.compact .rec-cover img { width: 52px; }
+.rec.compact .rec-title { font-size: 15.5px; }
+.rec.compact .rec-by { font-size: 13px; }
+.rec.compact .rec-shared { display: none; }
+.rec.compact .rec-actions { padding-top: 4px; }
+@media (max-width: 720px) { .similar-list { grid-template-columns: 1fr; } }
+
+/* ---------- the read-only public copy (GitHub Pages) ----------
+   Everything that would change the library is hidden; browsing, search, the
+   lamp, the window and the shelf material picker still work. */
+:root[data-static] :is(#addBtn, .decor-pick, .decor-pick + .mode-sep, .decor-remove, [data-action=startReading], [data-action=finish],
+  [data-action=startPick], [data-action=resetOrder], [data-action=fillCategories], [data-action=recWish], [data-action=recSkip],
+  [data-action=recRefresh], .rec-actions, #logForm, .goal-form, .journal-add, [data-del-entry], [data-bought], [data-delete],
+  .save-state, .shelf-arrange-note) { display: none !important; }
+:root[data-static] #drawer .stars { pointer-events: none; }
+:root[data-static] :is(#drawer, #view) :is(input, textarea, select):is([readonly], :disabled) { cursor: default; }
+:root[data-static] :is(.slot, .rank-item)[draggable] { cursor: pointer; }
+:root[data-static] :is(#drawer, #view) :is(input, textarea)::placeholder { color: transparent; }
+:root[data-static] #drawer input[type=date][value=""] { color: transparent; }
