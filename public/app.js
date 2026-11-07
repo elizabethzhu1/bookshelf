@@ -90,6 +90,9 @@ async function staticApi(url, method) {
 // visitor's library lives in their browser, run by the same library code the
 // server uses (lib/library.js over lib/browser-store.js).
 const LOCAL = 'local' in document.documentElement.dataset;
+// The public sites link to each other (set by scripts/build-site.js).
+const EXAMPLE_URL = document.documentElement.dataset.example || 'liz/';
+const MAKER_URL = document.documentElement.dataset.maker || '';
 let localLibrary;
 async function localApi(url, method, body) {
   if (url === '/api/config') return { libraryDir: '' };
@@ -393,7 +396,7 @@ function welcomeHTML() {
     <p class="welcome-actions">
       <button class="stamp" data-action="add">Add your first book</button>
       <button class="link-btn" data-action="tour">Take the tour</button>
-      ${LOCAL ? '<a class="link-btn" href="liz/">See an example shelf</a>' : ''}
+      ${LOCAL ? `<a class="link-btn" href="${esc(EXAMPLE_URL)}">See an example shelf</a>` : ''}
     </p>
   </section>`;
 }
@@ -2659,7 +2662,11 @@ async function startOver() {
 
 function setupFooter() {
   const foot = $('.colophon');
-  if (STATIC) return;
+  if (STATIC) {
+    // Liz's read-only shelf points visitors to the make-your-own site.
+    if (MAKER_URL) foot.insertAdjacentHTML('beforeend', `<span class="foot-gap"></span><a class="link-btn" href="${esc(MAKER_URL)}">Make your own bookshelf →</a>`);
+    return;
+  }
   if (LOCAL) {
     foot.innerHTML = `<span>Saved in this browser</span>
       <button type="button" class="link-btn" data-foot="export">Export</button>
@@ -2667,7 +2674,7 @@ function setupFooter() {
       <button type="button" class="link-btn" data-foot="reset">Start over</button>
       <span class="foot-gap"></span>
       <button type="button" class="link-btn" data-foot="tour">Take the tour</button>
-      <a class="link-btn" href="liz/">See an example shelf</a>`;
+      <a class="link-btn" href="${esc(EXAMPLE_URL)}">See an example shelf</a>`;
   } else {
     foot.insertAdjacentHTML('beforeend', '<span class="foot-gap"></span><button type="button" class="link-btn" data-foot="tour">Take the tour</button>');
   }

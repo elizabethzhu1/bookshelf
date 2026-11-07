@@ -1,13 +1,17 @@
-// Builds the public site for GitHub Pages, in two parts:
+// Builds the two public sites for GitHub Pages:
 //
-//   _site/       Make your own bookshelf: the app with an empty library kept in
-//                each visitor's browser (<html data-local>) and a first-visit tour.
-//   _site/liz/   Liz's bookshelf, read-only (<html data-static>): the library in
-//                library/ saved as JSON in _site/liz/data/.
+//   _site/    Liz's bookshelf, read-only (<html data-static>): the library in
+//             library/ saved as JSON in _site/data/. Published by this repo
+//             at elizabethzhu1.github.io/bookshelf.
+//   _maker/   Digital Bookshelf, make your own: the app with an empty library
+//             kept in each visitor's browser (<html data-local>) and a
+//             first-visit tour. Published to the digital-bookshelf repo at
+//             elizabethzhu1.github.io/digital-bookshelf.
 //
-//   npm run build-site                 → _site/
-//   npm run build-site -- --no-notes   → same, without reviews, notes and journal notes in /liz/
+//   npm run build-site                 → both
+//   npm run build-site -- --no-notes   → same, without reviews, notes and journal notes on Liz's shelf
 //
+// The sites link to each other; set MAKER_URL / EXAMPLE_URL to change where.
 // For the read-only copy it starts the real server for a moment and saves what
 // the app would ask it for (books, settings, recommendations, similar books).
 // The GitHub Actions workflow (.github/workflows/pages.yml) runs this on every
@@ -20,11 +24,37 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = path.join(ROOT, '_site');
-const OUT = path.join(SITE, 'liz');
+const OUT = SITE;
+const MAKER = path.join(ROOT, '_maker');
+const MAKER_URL = process.env.MAKER_URL || 'https://elizabethzhu1.github.io/digital-bookshelf/';
+const EXAMPLE_URL = process.env.EXAMPLE_URL || 'https://elizabethzhu1.github.io/bookshelf/';
 const PORT = 4300 + Math.floor(Math.random() * 90);
 const base = `http://127.0.0.1:${PORT}`;
 const noNotes = process.argv.includes('--no-notes');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// The page, three ways: as-is for the desktop app, data-local for the
+// make-your-own site, data-static for the read-only copy.
+async function mark(dir, attr, title) {
+  await fs.cp(path.join(ROOT, 'public'), dir, { recursive: true });
+  const index = path.join(dir, 'index.html');
+  let html = (await fs.readFile(index, 'utf8')).replace('<html lang="en">', `<html lang="en" ${attr}>`);
+  if (title) html = html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`).replace(/<h1>[^<]*<\/h1>/, `<h1>${title}</h1>`);
+  await fs.writeFile(index, html);
+}
+async function buildMaker() {
+  await fs.rm(MAKER, { recursive: true, force: true });
+  await mark(MAKER, `data-local data-example="${EXAMPLE_URL}"`, 'My Bookshelf');
+  await fs.writeFile(path.join(MAKER, '.nojekyll'), '');
+}
+
+// The make-your-own site needs no library and no server: the digital-bookshelf
+// repo's workflow builds just this, with `--maker-only`.
+if (process.argv.includes('--maker-only')) {
+  await buildMaker();
+  console.log('  built _maker/ (Digital Bookshelf)');
+  process.exit(0);
+}
 
 const server = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
   env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1' },
@@ -63,18 +93,12 @@ try {
   }));
   console.log(`  similar books for ${Object.keys(similar).length} of them`);
 
-  // The page, three ways: as-is for the desktop app, data-local for the
-  // public make-your-own site, data-static for the read-only copy.
-  const mark = async (dir, attr, title) => {
-    await fs.cp(path.join(ROOT, 'public'), dir, { recursive: true });
-    const index = path.join(dir, 'index.html');
-    let html = (await fs.readFile(index, 'utf8')).replace('<html lang="en">', `<html lang="en" ${attr}>`);
-    if (title) html = html.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`).replace(/<h1>[^<]*<\/h1>/, `<h1>${title}</h1>`);
-    await fs.writeFile(index, html);
-  };
   await fs.rm(SITE, { recursive: true, force: true });
-  await mark(SITE, 'data-local', 'My Bookshelf');
-  await mark(OUT, 'data-static');
+  await buildMaker();
+  await mark(SITE, `data-static data-maker="${MAKER_URL}"`);
+  // The shelf used to live at /liz/: send old links home.
+  await fs.mkdir(path.join(SITE, 'liz'));
+  await fs.writeFile(path.join(SITE, 'liz', 'index.html'), '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=../"><link rel="canonical" href="../"><a href="../">Liz’s Bookshelf</a>\n');
   await fs.mkdir(path.join(OUT, 'data'));
   const updated = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
   const files = {
@@ -86,7 +110,7 @@ try {
   };
   for (const [name, data] of Object.entries(files)) await fs.writeFile(path.join(OUT, 'data', name), JSON.stringify(data));
   await fs.writeFile(path.join(SITE, '.nojekyll'), ''); // serve files as they are
-  console.log(`  built ${path.relative(process.cwd(), SITE) || SITE}/ and liz/`);
+  console.log('  built _site/ (Liz’s bookshelf) and _maker/ (Digital Bookshelf)');
 } finally {
   server.kill();
 }

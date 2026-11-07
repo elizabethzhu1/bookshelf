@@ -2,7 +2,7 @@
 
 A personal digital bookshelf with a vintage-library look. Every book is a Markdown file, so the library also works inside Obsidian.
 
-**Make your own: [elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)** · **See mine: [/bookshelf/liz](https://elizabethzhu1.github.io/bookshelf/liz/)**
+**See mine: [elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)** · **Make your own: [elizabethzhu1.github.io/digital-bookshelf](https://elizabethzhu1.github.io/digital-bookshelf/)**
 
 **Shelves**
 - **3D books** on wooden shelves, shown face-out with their covers or as spines colored to match their covers. Hover to turn a book and see its pages.
@@ -92,19 +92,23 @@ SORT rank ASC
 ```
 ````
 
-## The public site (GitHub Pages)
+## The public sites (GitHub Pages)
 
-Every push to `main` publishes two things (and it rebuilds once a day so recommendations stay fresh):
+Both are built from this repo by `npm run build-site`:
 
-- **[elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)**: make your own bookshelf.
-  Anyone can start with empty shelves and a short tour of each part of the page (adding books, decorating,
-  day and night, the lamp, search, the other views). Their library is kept in their own browser, with no
-  account and no server. **Export** downloads it as a zip of Markdown files (the same files the desktop
-  app and Obsidian use), and **Import** loads `.md` files or a zip back in, on any device.
-- **[/bookshelf/liz](https://elizabethzhu1.github.io/bookshelf/liz/)**: my bookshelf, read-only, built from
-  `library/`. To leave out reviews and notes, change the build step to `npm run build-site -- --no-notes`.
+- **[elizabethzhu1.github.io/bookshelf](https://elizabethzhu1.github.io/bookshelf/)**: my bookshelf, read-only,
+  built from `library/` into `_site/`. This repo's workflow (`.github/workflows/pages.yml`) publishes it on
+  every push to `main`, and once a day so recommendations stay fresh. To leave out reviews and notes, change
+  the build step to `npm run build-site -- --no-notes`.
+- **[elizabethzhu1.github.io/digital-bookshelf](https://elizabethzhu1.github.io/digital-bookshelf/)**: Digital
+  Bookshelf, make your own. Anyone starts with empty shelves and a short tour of each part of the page (adding
+  books, decorating, day and night, the lamp, search, the other views). Their library is kept in their own
+  browser, with no account and no server. **Export** downloads it as a zip of Markdown files (the same files
+  the desktop app and Obsidian use), and **Import** loads `.md` files or a zip back in. It's built into
+  `_maker/` (`npm run build-site -- --maker-only`) by the workflow in the
+  [digital-bookshelf](https://github.com/elizabethzhu1/digital-bookshelf) repo, which checks this repo every
+  hour and republishes when the code has changed. To publish right away, run that workflow from its Actions tab.
 
-The workflow is `.github/workflows/pages.yml`; it runs `npm run build-site`, which writes both into `_site/`.
 The browser and the desktop server share the same library code (`public/lib/library.js`): the server keeps
 books as files on disk, the website keeps the same Markdown text in the browser's storage.
 
